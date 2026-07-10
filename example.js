@@ -4,7 +4,7 @@
 // developers porting from C++ can diff the two files directly.
 
 const readline = require('readline');
-const atlas = require('./src'); // in a published package this is: require('@atlas/auth')
+const atlas = require('./src');
 
 async function prompt(question) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });

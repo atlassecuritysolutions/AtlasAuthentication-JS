@@ -1,5 +1,5 @@
 {
-    "name":  "@atlas/auth",
+    "name":  "atlas-authentication",
     "version":  "2.0.0",
     "description":  "Atlas Authentication SDK — Node.js binding for Windows x64.",
     "main":  "src/index.js",

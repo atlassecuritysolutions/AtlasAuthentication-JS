@@ -4,7 +4,7 @@
 // Wraps Atlas.dll (built from the same C++ sources as the .lib) via koffi.
 // The high-level shape mirrors the C++ namespace exactly:
 //
-//   const atlas = require('@atlas/auth');
+//   const atlas = require('./vendor/atlas-auth/src');
 //   atlas.setApiKey('...');
 //   atlas.startup();
 //   if (!atlas.login(key)) throw new Error(atlas.data.getErrorMessage());
@@ -56,7 +56,7 @@ catch (e) {
 // ── DLL location resolution ─────────────────────────────────────────────────
 // Order of preference:
 //   1. Explicit path via ATLAS_DLL_PATH env var (used in dev + tests)
-//   2. Path passed to `require('@atlas/auth').init({ dllPath: '...' })`
+//   2. Path passed to `init({ dllPath: '...' })`
 //   3. Atlas.dll next to this module (installed via npm)
 //   4. Atlas.dll in the current working directory (last resort for scripts)
 function resolveDllPath(explicit) {

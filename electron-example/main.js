@@ -20,7 +20,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 
 // Point at the SDK sitting in the parent JS Integration folder.
-// In a real Electron app installed via npm, this is: require('@atlas/auth')
+// In a real Electron app, git-clone or vendor this folder and: require('./atlas-auth')
 const atlas = require('..');
 
 let mainWindow = null;

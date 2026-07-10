@@ -60,10 +60,20 @@ Every 5 seconds after login: executable CRC verified, import table checked, netw
 
 ---
 
+## Install
+
+```bash
+git clone https://github.com/atlassecuritysolutions/AtlasAuthentication-JS.git
+cd AtlasAuthentication-JS
+npm install koffi
+```
+
+That's it — no npm package, no build step. The `Atlas.dll` + `Atlas.dll.sig` ship in the repo. The one runtime dependency is [koffi](https://koffi.dev) for the FFI binding.
+
 ## Integration
 
 ```javascript
-const atlas = require('@atlas/auth');
+const atlas = require('./AtlasAuthentication-JS/src');
 
 atlas.setApiKey('YOUR_API_KEY_HERE');
 atlas.startup();
@@ -189,24 +199,29 @@ Electron apps are two processes: **main** (Node runtime) and **renderer** (Chrom
 
 ## Distribution
 
-**For npm** — publish `@your-scope/auth` with:
+**GitHub-only distribution — no npm registry.** Users clone the repo or vendor it into their project:
 
-```
-package/
-├── src/index.js
-├── src/index.d.ts
-├── Atlas.dll         ← copy from JS Integration/Atlas.dll after building
-├── package.json
-└── README.md
+```bash
+# Option 1: git clone into a vendor directory
+git clone https://github.com/atlassecuritysolutions/AtlasAuthentication-JS.git vendor/atlas-auth
+
+# Option 2: git submodule (recommended for reproducible builds)
+git submodule add https://github.com/atlassecuritysolutions/AtlasAuthentication-JS.git vendor/atlas-auth
 ```
 
-Node auto-selects the right binary because `package.json` declares `"os": ["win32"]` and `"cpu": ["x64"]`. Installers on other platforms get a clear error rather than a silent no-op.
+Then reference locally:
+
+```javascript
+const atlas = require('./vendor/atlas-auth/src');
+```
+
+The `Atlas.dll` binary is committed to the repo — no separate download step, no build required. The SDK's own platform check in `src/index.js` throws on non-Win32 at require time, so cross-platform hosts get a clear error immediately.
 
 **For Electron apps** — bundle `Atlas.dll` alongside your app binary via electron-builder's `extraResources`:
 
 ```json
 "extraResources": [
-    { "from": "node_modules/@atlas/auth/Atlas.dll", "to": "Atlas.dll" }
+    { "from": "vendor/atlas-auth/Atlas.dll", "to": "Atlas.dll" }
 ]
 ```
 
@@ -214,7 +229,7 @@ Then point the SDK at it:
 
 ```javascript
 const path = require('path');
-const atlas = require('@atlas/auth');
+const atlas = require('./vendor/atlas-auth/src');
 atlas.init({ dllPath: path.join(process.resourcesPath, 'Atlas.dll') });
 ```
 
