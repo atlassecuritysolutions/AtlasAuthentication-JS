@@ -1,0 +1,15 @@
+{
+  "name": "atlas-electron-example",
+  "version": "1.0.0",
+  "description": "Electron sample using Atlas Authentication — main-process auth, sandboxed renderer.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  },
+  "dependencies": {
+    "koffi": "^2.9.0"
+  }
+}
