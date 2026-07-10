@@ -72,7 +72,7 @@ function resolveDllPath(explicit) {
 // against a different major (breaking export ABI). Within a major we're
 // add-only, so a newer DLL is fine but an older one may be missing
 // exports we resolve at bind time.
-const BINDING_VERSION = '2.0.0';
+const BINDING_VERSION = '2.0.1';
 const REQUIRED_DLL_MAJOR = 2;
 
 function parseSemver(s) {

@@ -342,16 +342,145 @@ function promotePendingSidecar(dllPath) {
     const sidecar = dllPath + '.new';
     if (!fileExists(sidecar)) return false;
     try {
+        const oldSize = fileExists(dllPath) ? fs.statSync(dllPath).size : 0;
+        const newSize = fs.statSync(sidecar).size;
         // Windows fs.renameSync overwrites destination if target file is
         // not locked. If it IS locked (running process), rename fails —
         // catch and keep the sidecar for later.
         fs.renameSync(sidecar, dllPath);
         logLine(`promoted sidecar over ${dllPath}`);
+        notifyUpdated({ path: dllPath, oldSize, newSize });
         return true;
     } catch (err) {
         logLine(`sidecar promotion failed: ${err.message} — will retry next launch`);
         return false;
     }
+}
+
+// User-visible notification when a fresh Atlas.dll gets swapped in.
+// Silent-swaps of security-critical binaries are exactly how supply-chain
+// attacks stay hidden -- so every swap is LOUD:
+//   1. Big colored console banner with every relevant detail
+//   2. Native Windows MessageBox (via child process to msg.exe / PowerShell)
+//      so terminal-launched Node apps ALSO get a dialog
+//   3. Electron dialog if running under Electron
+//   4. Full path to the manage-updater CLI so the dev can act on it
+function notifyUpdated(info) {
+    const cacheDir  = getCacheDir();
+    const managePath = path.join(__dirname, '..', 'dev-tools', 'manage_autoupdate.js');
+    const logsPath   = path.join(cacheDir, LOG_DIR);
+    const stamp      = new Date().toISOString();
+
+    // ANSI color helpers -- yellow banner + inverted "ALERT" header. Fail-soft
+    // if the terminal doesn't support ANSI (Windows Terminal / VSCode terminal
+    // / any modern Windows console does; older cmd.exe may show raw escapes,
+    // which is ugly but harmless).
+    const B   = '\x1b[1m';       // bold
+    const YEL = '\x1b[33m';      // yellow
+    const CYA = '\x1b[36m';      // cyan
+    const RED = '\x1b[91m';      // bright red
+    const GRN = '\x1b[92m';      // bright green
+    const GRY = '\x1b[90m';      // gray
+    const INV = '\x1b[7m';       // inverse video
+    const R   = '\x1b[0m';       // reset
+
+    const bar = '='.repeat(72);
+    const rule = '-'.repeat(72);
+
+    const banner = [
+        '',
+        '',
+        `  ${YEL}${bar}${R}`,
+        `  ${YEL}${INV}${B}  [!] ATLAS AUTHENTICATION SDK   AUTO-UPDATE APPLIED  [!]        ${R}`,
+        `  ${YEL}${bar}${R}`,
+        '',
+        `  ${B}A newer Atlas.dll was fetched from GitHub, its Ed25519 signature was${R}`,
+        `  ${B}verified against the pinned pubkey, and it was swapped in atomically${R}`,
+        `  ${B}on process start. Every load from now on uses the new binary.${R}`,
+        '',
+        `  ${CYA}--- File that changed ------------------------------------------------${R}`,
+        `    Path      : ${GRN}${info.path}${R}`,
+        `    Old size  : ${(info.oldSize / 1024).toFixed(1)} KB`,
+        `    New size  : ${(info.newSize / 1024).toFixed(1)} KB`,
+        `    Signature : ${GRN}Ed25519 verified against pinned pubkey${R}`,
+        `    Timestamp : ${stamp}`,
+        '',
+        `  ${CYA}--- To inspect or manage the auto-updater ---------------------------${R}`,
+        `    Cache dir : ${cacheDir}`,
+        `    Logs      : ${logsPath}`,
+        `    CLI       : ${GRY}node "${managePath}" <status|enable|disable|check|reset>${R}`,
+        '',
+        `  ${CYA}--- Why you're seeing this ------------------------------------------${R}`,
+        `    You (or a previous session) called ${B}atlas.enableAutoUpdate()${R}.`,
+        `    Turn it off any time with ${GRY}node "${managePath}" disable${R}`,
+        '',
+        `  ${YEL}${bar}${R}`,
+        '',
+        ''
+    ].join('\n');
+
+    // 1. Console (stderr so it's visible even when stdout is redirected).
+    //    Always fires -- terminal apps, Electron with `--enable-logging`, CI.
+    try { process.stderr.write(banner); } catch { /* stderr closed -- rare */ }
+
+    // 2. Native Windows MessageBox via PowerShell -- catches the case where
+    //    the process has NO console at all (double-clicked Electron, service).
+    //    Non-blocking: spawn detached so we don't hold up startup.
+    try {
+        const msg =
+            'Atlas.dll was updated to a newer signed release from GitHub.\r\n\r\n' +
+            'Path: ' + info.path + '\r\n' +
+            'Old size: ' + (info.oldSize / 1024).toFixed(1) + ' KB\r\n' +
+            'New size: ' + (info.newSize / 1024).toFixed(1) + ' KB\r\n' +
+            'Verified: Ed25519 signature check passed\r\n' +
+            'Timestamp: ' + stamp + '\r\n\r\n' +
+            'Manage the auto-updater from:\r\n' +
+            managePath + '\r\n\r\n' +
+            'Cache directory:\r\n' +
+            cacheDir;
+        // PowerShell one-liner -- safe on any Win7+ box. Fail-soft.
+        const { spawn } = require('child_process');
+        spawn('powershell.exe', [
+            '-NoLogo', '-NoProfile', '-WindowStyle', 'Hidden', '-Command',
+            'Add-Type -AssemblyName PresentationFramework; ' +
+            '[System.Windows.MessageBox]::Show(' +
+                "'" + msg.replace(/'/g, "''") + "', " +
+                "'Atlas SDK - Auto-update applied', 'OK', 'Information')"
+        ], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } catch { /* no PS available -- console banner still fired above */ }
+
+    // 3. Electron dialog -- only if the app has actually loaded electron.
+    try {
+        const electron = require('electron');
+        if (electron && electron.app && electron.dialog) {
+            const show = () => {
+                try {
+                    electron.dialog.showMessageBox({
+                        type: 'info',
+                        title: 'Atlas SDK - Auto-update applied',
+                        message: 'Atlas.dll was updated to a newer signed release.',
+                        detail:
+                            'A signature-verified update from GitHub was applied.\n\n' +
+                            'Path: ' + info.path + '\n' +
+                            'Old size: ' + (info.oldSize / 1024).toFixed(1) + ' KB\n' +
+                            'New size: ' + (info.newSize / 1024).toFixed(1) + ' KB\n\n' +
+                            'Manage: node ' + managePath + '\n' +
+                            'Cache : ' + cacheDir,
+                        buttons: ['OK'],
+                        noLink: true
+                    });
+                } catch { /* window closed */ }
+            };
+            if (electron.app.isReady()) show();
+            else electron.app.on('ready', show);
+        }
+    } catch { /* not under Electron -- fine */ }
+
+    // Also write the alert to the updater log so it's persistent even if the
+    // console/dialog got missed.
+    logLine('=== AUTO-UPDATE APPLIED ===');
+    logLine(`path=${info.path} oldSize=${info.oldSize} newSize=${info.newSize} time=${stamp}`);
+    logLine(`manage: node ${managePath}`);
 }
 
 // Read-only view of the updater state — for envInfo() and support tickets.
