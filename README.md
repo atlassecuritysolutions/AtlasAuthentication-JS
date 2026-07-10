@@ -26,7 +26,7 @@ Prompts for a license key, connects to the Atlas server, and on success prints t
 
 Two runnable examples are included:
 
-- **`example.js`** — line-for-line port of the C++ console example. Diff it against `../C++ Integration/Atlas Auth Example.cpp` — same flow, same fields, same order.
+- **`Atlas Auth Example.js`** — line-for-line port of the C++ console example. Diff it against `../C++ Integration/Atlas Auth Example.cpp` — same flow, same fields, same order.
 - **`electron-example/`** — a proper Electron desktop app. Atlas runs in the main process; the renderer is fully sandboxed and reaches Atlas only through a narrow IPC surface.
 
 ---
