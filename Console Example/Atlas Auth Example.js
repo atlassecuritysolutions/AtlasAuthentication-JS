@@ -1,25 +1,21 @@
 // Atlas Authentication Library - Example Usage
-// Run as x64 Node >= 18 | Set your API key below (atlas.setApiKey)
+// Run as x64 Node >= 18 | Set your API key below
 
-const readline = require('readline');
-const atlas = require('./src');
+const atlas = require('../shared/src');
 
-async function readLine(question) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise((resolve) => rl.question(question, (a) => { rl.close(); resolve(a); }));
-}
+// Set your API key -- copy from atlassecurity.site -> dashboard -> API keys
+// (C++ users set this in Atlas.h; JS/Node users set it here in code)
+atlas.setApiKey('YOUR_API_KEY');
 
-async function main() {
-    // Set your API key -- copy from atlassecurity.site -> dashboard -> API keys
-    atlas.setApiKey('YOUR_API_KEY_HERE');
-
+(async () => {
     // Must be called once at startup before any other Atlas functions
     atlas.startup();
 
     console.log('Atlas Authentication Example\n');
 
     // Prompt user for license key and authenticate with the server
-    const license = (await readLine('Enter license: ')).trim();
+    process.stdout.write('Enter license: ');
+    const license = (await readLine()).trim();
     console.log('Attempting to connect to server...');
 
     if (!atlas.login(license)) {
@@ -28,7 +24,7 @@ async function main() {
         console.log('\n[!] Authentication failed!');
         if (errorMsg) console.log(`[!] Reason: ${errorMsg}`);
         console.log('\nPress Enter to exit...');
-        await readLine('');
+        await readLine();
         process.exit(1);
     }
 
@@ -58,12 +54,16 @@ async function main() {
 
     // Your application code continues here
     console.log('\nPress Enter to exit program fully...');
-    await readLine('');
+    await readLine();
     process.exit(0);
-}
+})();
 
-main().catch((err) => {
-    if (err && err.name === 'AtlasError') console.error(`\n[!] ${err.message}`);
-    else console.error('\n[!] Unexpected error:', err);
-    process.exit(1);
-});
+// Node doesn't have a synchronous std::getline equivalent; readline is the
+// idiomatic replacement. Kept at the bottom so main() reads top-to-bottom
+// just like the C++ example.
+function readLine() {
+    return new Promise((resolve) => {
+        const rl = require('readline').createInterface({ input: process.stdin });
+        rl.once('line', (l) => { rl.close(); resolve(l); });
+    });
+}

@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <!--
+        CSP: allow only self-origin resources. Inline script + style are used
+        because this is a single-file example; the actual security boundary
+        that matters (renderer can't reach Node) is enforced by the preload
+        script under contextIsolation. See preload.js for the contract.
+    -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
+    <title>Atlas</title>
+    <style>
+        /* Atlas cold-steel palette (source: atlassecurity.site) */
+        :root {
+            --ink:        #080f1e;
+            --panel:      #0e1a30;
+            --raised:     #14233d;
+            --raised-hi:  #182a45;
+            --line:       #22375a;
+            --line-soft:  #17263f;
+            --hi:         #f1f5fb;
+            --lo:         #93a7c4;
+            --faint:      #566d8f;
+            --signal:     #4aa3ec;
+            --signal-hi:  #5fb0e8;
+            --signal-glow: rgba(74,163,236,0.14);
+            --ok:         #62cda0;
+            --alert:      #f0817f;
+            --font-body:  'Segoe UI',-apple-system,system-ui,sans-serif;
+            --font-mono:  Consolas,'Cascadia Mono','SF Mono',ui-monospace,monospace;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; }
+        body {
+            font-family: var(--font-body);
+            font-size: 14px;
+            color: var(--hi);
+            background: var(--ink);
+            -webkit-font-smoothing: antialiased;
+            user-select: none;
+        }
+
+        /* Single centred column. No split, no side pane. The form IS the app. */
+        .app {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 48px 56px;
+        }
+        .col {
+            width: 100%;
+            max-width: 420px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand-mark {
+            display: flex; align-items: center; gap: 12px;
+            margin-bottom: 44px;
+        }
+        .brand-mark .glyph {
+            width: 26px; height: 26px;
+            background: var(--signal);
+            border-radius: 6px;
+            display: grid; place-items: center;
+            font-size: 14px; font-weight: 700;
+            color: var(--ink);
+        }
+        .brand-mark .name {
+            font-size: 15px; font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        h1 {
+            font-size: 24px; font-weight: 600;
+            letter-spacing: -0.015em;
+            margin-bottom: 6px;
+        }
+        .sub {
+            font-size: 13px; color: var(--lo);
+            margin-bottom: 32px;
+            line-height: 1.55;
+        }
+
+        .field { margin-bottom: 18px; }
+        .field label {
+            display: block;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+            color: var(--faint);
+            margin-bottom: 8px;
+        }
+        input[type="text"] {
+            width: 100%;
+            height: 42px;
+            padding: 0 14px;
+            background: var(--raised);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: var(--hi);
+            font-family: var(--font-mono);
+            font-size: 13.5px;
+            outline: none;
+            transition: border-color 120ms, background 120ms;
+        }
+        input[type="text"]:focus {
+            border-color: var(--signal);
+            background: var(--raised-hi);
+        }
+        input[type="text"]::placeholder { color: var(--faint); }
+
+        button.primary {
+            width: 100%;
+            height: 44px;
+            margin-top: 8px;
+            background: var(--signal);
+            color: var(--ink);
+            border: 0;
+            border-radius: 8px;
+            font-family: var(--font-body);
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: -0.005em;
+            cursor: pointer;
+            transition: background 120ms;
+        }
+        button.primary:hover { background: var(--signal-hi); }
+        button.primary:disabled { opacity: 0.5; cursor: not-allowed; background: var(--signal); }
+
+        button.ghost {
+            display: inline-flex; align-items: center; gap: 6px;
+            height: 36px;
+            padding: 0 14px;
+            background: transparent;
+            color: var(--lo);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            font-family: var(--font-body);
+            font-size: 12.5px;
+            cursor: pointer;
+            transition: border-color 120ms, color 120ms, background 120ms;
+        }
+        button.ghost:hover { border-color: var(--faint); color: var(--hi); background: var(--raised); }
+
+        .status {
+            margin-top: 20px;
+            padding: 11px 14px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            line-height: 1.5;
+            border: 1px solid transparent;
+            display: none;
+        }
+        .status.error {
+            display: block;
+            border-color: rgba(240,129,127,0.32);
+            background: rgba(240,129,127,0.08);
+            color: var(--alert);
+        }
+        .status.info {
+            display: block;
+            border-color: rgba(74,163,236,0.32);
+            background: var(--signal-glow);
+            color: var(--signal);
+        }
+        .status.busy::after {
+            content: '';
+            display: inline-block;
+            width: 8px; height: 8px;
+            margin-left: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            opacity: 0.6;
+            animation: pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50%      { opacity: 0.9; transform: scale(1.2); }
+        }
+
+        /* Site link, bottom-left, big + obvious + blue. This is the app
+           footer -- users always know where the real product lives. */
+        .foot {
+            position: absolute;
+            left: 56px;
+            bottom: 36px;
+            font-family: var(--font-body);
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: -0.005em;
+        }
+        .foot a {
+            color: var(--signal);
+            text-decoration: underline;
+            text-decoration-thickness: 1px;
+            text-underline-offset: 3px;
+            cursor: pointer;
+            transition: color 120ms;
+        }
+        .foot a:hover { color: var(--signal-hi); }
+
+        /* Session-info card on the welcome screen */
+        dl.info {
+            display: grid;
+            grid-template-columns: 90px 1fr;
+            gap: 10px 16px;
+            margin-top: 8px;
+            margin-bottom: 24px;
+            padding: 18px 20px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--raised);
+        }
+        dl.info dt {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: var(--faint);
+            align-self: center;
+        }
+        dl.info dd {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--hi);
+            word-break: break-all;
+            user-select: text;
+        }
+        .welcome-actions { display: flex; gap: 10px; }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-app" class="app">
+    <div class="col">
+        <div class="brand-mark">
+            <div class="glyph">A</div>
+            <div class="name">Atlas</div>
+        </div>
+
+        <h1>Sign in</h1>
+        <p class="sub">Your license is checked against the Atlas server, tied to this machine's hardware, and re-verified every five seconds while the program runs.</p>
+
+        <form id="login-form" autocomplete="off" spellcheck="false">
+            <div class="field">
+                <label for="license">License key</label>
+                <input id="license" type="text" placeholder="ATLAS-XXXXX-XXXXX-XXXXX" required />
+            </div>
+            <button id="submit" class="primary" type="submit">Authenticate</button>
+        </form>
+
+        <div id="status" class="status"></div>
+    </div>
+</div>
+
+<!-- WELCOME -->
+<div id="welcome-app" class="app hidden">
+    <div class="col">
+        <div class="brand-mark">
+            <div class="glyph">A</div>
+            <div class="name">Atlas</div>
+        </div>
+
+        <h1>Signed in</h1>
+        <p class="sub">Your session is holding. The Atlas heartbeat keeps re-verifying it every five seconds; you don't need to call anything to keep it alive.</p>
+
+        <dl class="info" id="welcome-info"></dl>
+
+        <div class="welcome-actions">
+            <button id="signout" class="ghost">Sign out</button>
+            <button id="check" class="ghost">Recheck session</button>
+        </div>
+    </div>
+</div>
+
+<div class="foot"><a id="site-link">atlassecurity.site</a></div>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+    const loginApp    = $('login-app');
+    const welcomeApp  = $('welcome-app');
+    const loginForm   = $('login-form');
+    const licenseInp  = $('license');
+    const submitBtn   = $('submit');
+    const statusDiv   = $('status');
+    const welcomeInfo = $('welcome-info');
+
+    // Diagnostic: any preload/CSP breakage shows up in DevTools immediately.
+    console.log('[atlas-example] renderer loaded, window.atlas is:', typeof window.atlas);
+    if (window.atlas) {
+        console.log('[atlas-example] methods:', Object.keys(window.atlas));
+    } else {
+        console.error('[atlas-example] preload did not expose window.atlas!');
+    }
+
+    function setStatus(kind, text) {
+        statusDiv.className = 'status ' + (kind || '');
+        statusDiv.textContent = text || '';
+    }
+
+    function maskLicense(k) {
+        if (!k || k.length < 6) return k || '';
+        return k.slice(0, 6) + '-*****-*****';
+    }
+
+    function showLogin() {
+        loginApp.classList.remove('hidden');
+        welcomeApp.classList.add('hidden');
+        licenseInp.value = '';
+        submitBtn.disabled = false;
+        setStatus('', '');
+        licenseInp.focus();
+    }
+
+    function renderWelcome(license, data) {
+        welcomeInfo.innerHTML = '';
+        const rows = [
+            ['License',   maskLicense(license)],
+            ['Level',     data.level      || '-'],
+            ['Expiry',    data.expiry     || '-'],
+            ['HWID',      data.hwid       || '-'],
+            ['IP',        data.ip         || '-'],
+            ['Note',      data.note       || '-'],
+        ];
+        for (const [k, v] of rows) {
+            const dt = document.createElement('dt'); dt.textContent = k;
+            const dd = document.createElement('dd'); dd.textContent = v;
+            welcomeInfo.appendChild(dt);
+            welcomeInfo.appendChild(dd);
+        }
+        loginApp.classList.add('hidden');
+        welcomeApp.classList.remove('hidden');
+    }
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const k = licenseInp.value.trim();
+        if (!k) { setStatus('error', 'Enter a license key.'); return; }
+        if (!window.atlas || typeof window.atlas.login !== 'function') {
+            setStatus('error', 'IPC bridge is not available. Restart the app.');
+            return;
+        }
+        submitBtn.disabled = true;
+        setStatus('info busy', 'Contacting server...');
+        try {
+            const r = await window.atlas.login(k);
+            if (r && r.ok) {
+                renderWelcome(k, r);
+            } else {
+                setStatus('error', (r && r.error) || 'Authentication rejected.');
+                submitBtn.disabled = false;
+                licenseInp.focus();
+                licenseInp.select();
+            }
+        } catch (err) {
+            setStatus('error', 'IPC error: ' + (err && err.message || String(err)));
+            submitBtn.disabled = false;
+        }
+    });
+
+    $('signout').addEventListener('click', async () => {
+        try { await window.atlas.signout(); } catch {}
+        showLogin();
+    });
+
+    $('check').addEventListener('click', async () => {
+        try {
+            const s = await window.atlas.status();
+            if (s.authenticated && !s.banned) {
+                setStatus('info', 'Session is holding.');
+                setTimeout(() => setStatus('', ''), 2500);
+            } else {
+                setStatus('error', s.banned ? 'This session has been banned.' : 'Session is no longer valid.');
+                setTimeout(showLogin, 1800);
+            }
+        } catch (err) {
+            setStatus('error', 'Status check failed: ' + err.message);
+        }
+    });
+
+    // Website link -- routes through the main process via shell.openExternal.
+    // The renderer never gets shell access directly.
+    $('site-link').addEventListener('click', async () => {
+        try { await window.atlas.openUrl('https://atlassecurity.site'); }
+        catch (e) { console.error('[atlas-example] openUrl failed:', e); }
+    });
+
+    licenseInp.focus();
+</script>
+</body>
+</html>

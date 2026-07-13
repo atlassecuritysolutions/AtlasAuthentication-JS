@@ -72,8 +72,8 @@ function resolveDllPath(explicit) {
 // against a different major (breaking export ABI). Within a major we're
 // add-only, so a newer DLL is fine but an older one may be missing
 // exports we resolve at bind time.
-const BINDING_VERSION = '2.0.1';
-const REQUIRED_DLL_MAJOR = 2;
+const BINDING_VERSION = '1.0.0';
+const REQUIRED_DLL_MAJOR = 1;
 
 function parseSemver(s) {
     // Best-effort — accepts "1.0.0", "1.2", "1", tolerates trailing metadata.
@@ -158,6 +158,7 @@ function ensureBound(options) {
             IsBanned:            lib.func('int __cdecl Atlas_IsBanned()'),
             IsDllHost:           lib.func('int __cdecl Atlas_IsDllHost()'),
             Exit:                lib.func('void __cdecl Atlas_Exit()'),
+            Logout:              lib.func('int __cdecl Atlas_Logout()'),
             CheckAuthentication: lib.func('int __cdecl Atlas_CheckAuthentication()'),
             BanUser:             lib.func('int __cdecl Atlas_BanUser(const char*, int)'),
             SubmitLog:           lib.func('int __cdecl Atlas_SubmitLog(const char*)'),
@@ -566,6 +567,19 @@ function exit() {
     fns.Exit();
 }
 
+/**
+ * Gentle sign-out. Tells the server to tear down the session, closes the
+ * socket, zeroes credentials -- but leaves the process running. Use this
+ * when a user clicks "Sign out" in your UI and should return to the login
+ * screen. For attacker/tamper responses use exit() instead.
+ */
+function logout() {
+    ensureBound();
+    const rc = fns.Logout();
+    if (rc !== Status.OK) throw new AtlasError(rc);
+    return true;
+}
+
 // ── Data namespace — mirrors Atlas::Data:: ─────────────────────────────────
 // Every getter routes through readString(), so a call before startup() or
 // before login() will throw AtlasError(NOT_AUTHED) with a clean message,
@@ -632,6 +646,7 @@ module.exports = {
     startup,
     login,
     exit,
+    logout,
     data,
     network,
     version,

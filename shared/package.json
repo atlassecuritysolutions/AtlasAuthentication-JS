@@ -1,0 +1,35 @@
+{
+    "name":  "atlas-authentication",
+    "version":  "1.0.0",
+    "description":  "Atlas Authentication SDK — Node.js binding for Windows x64.",
+    "main":  "src/index.js",
+    "types":  "src/index.d.ts",
+    "os":  [
+               "win32"
+           ],
+    "cpu":  [
+                "x64"
+            ],
+    "engines":  {
+                    "node":  "\u003e=18"
+                },
+    "dependencies":  {
+                         "koffi":  "^2.9.0"
+                     },
+    "keywords":  [
+                     "atlas",
+                     "authentication",
+                     "licensing",
+                     "drm",
+                     "windows"
+                 ],
+    "author":  "Atlas Security Solutions",
+    "license":  "SEE LICENSE IN ../README.md",
+    "homepage":  "https://atlassecurity.site",
+    "bugs":  "mail@atlassecurity.site",
+    "files":  [
+                  "src/",
+                  "Atlas.dll",
+                  "Atlas.dll.sig"
+              ]
+}
