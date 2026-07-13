@@ -1,0 +1,16 @@
+{
+  "name": "atlas-authentication-electron-example",
+  "version": "2.0.1",
+  "description": "Atlas Authentication SDK - Electron desktop example. atlassecurity.site",
+  "main": "Atlas Auth Electron Example.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  },
+  "dependencies": {
+    "koffi": "^2.9.0"
+  }
+}
