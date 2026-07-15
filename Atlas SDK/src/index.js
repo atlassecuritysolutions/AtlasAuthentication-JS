@@ -154,6 +154,8 @@ function ensureBound(options) {
             GetResolvedAppHash:  lib.func('int __cdecl Atlas_GetResolvedAppHash(_Out_ char*, size_t)'),
             Startup:             lib.func('int __cdecl Atlas_Startup()'),
             Login:               lib.func('int __cdecl Atlas_Login(const char*)'),
+            LoginUser:           lib.func('int __cdecl Atlas_LoginUser(const char*, const char*)'),
+            Register:            lib.func('int __cdecl Atlas_Register(const char*, const char*, const char*)'),
             IsAuthenticated:     lib.func('int __cdecl Atlas_IsAuthenticated()'),
             IsBanned:            lib.func('int __cdecl Atlas_IsBanned()'),
             IsDllHost:           lib.func('int __cdecl Atlas_IsDllHost()'),
@@ -162,12 +164,14 @@ function ensureBound(options) {
             CheckAuthentication: lib.func('int __cdecl Atlas_CheckAuthentication()'),
             BanUser:             lib.func('int __cdecl Atlas_BanUser(const char*, int)'),
             SubmitLog:           lib.func('int __cdecl Atlas_SubmitLog(const char*)'),
+            ChangePassword:      lib.func('int __cdecl Atlas_ChangePassword(const char*, const char*)'),
             Download:            lib.func('int __cdecl Atlas_Download(int, _Out_ uint8_t*, size_t)'),
             GetLicense:          lib.func('int __cdecl Atlas_GetLicense(_Out_ char*, size_t)'),
+            GetUsername:         lib.func('int __cdecl Atlas_GetUsername(_Out_ char*, size_t)'),
             GetHWID:             lib.func('int __cdecl Atlas_GetHWID(_Out_ char*, size_t)'),
             GetIP:               lib.func('int __cdecl Atlas_GetIP(_Out_ char*, size_t)'),
             GetExpiry:           lib.func('int __cdecl Atlas_GetExpiry(_Out_ char*, size_t)'),
-            GetLevel:            lib.func('int __cdecl Atlas_GetLevel(_Out_ char*, size_t)'),
+            GetLevel:            lib.func('int __cdecl Atlas_GetLevel()'),
             GetNote:             lib.func('int __cdecl Atlas_GetNote(_Out_ char*, size_t)'),
             GetUserCount:        lib.func('int __cdecl Atlas_GetUserCount(_Out_ char*, size_t)'),
             GetActiveUserCount:  lib.func('int __cdecl Atlas_GetActiveUserCount(_Out_ char*, size_t)'),
@@ -492,10 +496,45 @@ function startup() {
  * for the server's reason on false. Any other failure (transport, uninit,
  * bad arg) throws an AtlasError.
  */
-function login(licenseKey) {
+/**
+ * Authenticate. Two shapes:
+ *   login(licenseKey)                — license-only login (the classic flow)
+ *   login(username, password)        — user-account login (post-Register)
+ *
+ * Returns true on success, false on server rejection. Throws AtlasError for
+ * shape / state errors. Read atlas.data.getErrorMessage() for the reason
+ * on a `false` return.
+ */
+function login(a, b) {
+    if (!didStartup) throw new AtlasError(Status.NOT_STARTED);
+    if (typeof b === 'string' && b.length > 0) {
+        // User-pass mode.
+        requireNonEmptyString('username', a);
+        requireNonEmptyString('password', b);
+        const rc = fns.LoginUser(a, b);
+        if (rc === Status.OK) return true;
+        if (rc === Status.LOGIN_FAILED) return false;
+        throw new AtlasError(rc);
+    }
+    // License-key mode.
+    requireNonEmptyString('licenseKey', a);
+    const rc = fns.Login(a);
+    if (rc === Status.OK) return true;
+    if (rc === Status.LOGIN_FAILED) return false;
+    throw new AtlasError(rc);
+}
+
+/**
+ * Bind a license key to a new username/password account. One-shot; on
+ * success the caller should call login(username, password) to open a real
+ * session. Returns true on success, false on server rejection.
+ */
+function register(licenseKey, username, password) {
     if (!didStartup) throw new AtlasError(Status.NOT_STARTED);
     requireNonEmptyString('licenseKey', licenseKey);
-    const rc = fns.Login(licenseKey);
+    requireNonEmptyString('username', username);
+    requireNonEmptyString('password', password);
+    const rc = fns.Register(licenseKey, username, password);
     if (rc === Status.OK) return true;
     if (rc === Status.LOGIN_FAILED) return false;
     throw new AtlasError(rc);
@@ -536,6 +575,26 @@ function submitLog(text) {
     const rc = fns.SubmitLog(text);
     if (rc !== Status.OK) throw new AtlasError(rc);
     return true;
+}
+
+/**
+ * Change the password of the current password account. Only valid after
+ * login(username, password); license-only sessions return false with the
+ * reason in data.getErrorMessage(). newPassword must be 6-128 chars and
+ * differ from oldPassword.
+ *
+ * Returns true on success, false on server rejection (bad credentials, same
+ * password, account paused). Throws AtlasError for transport / not-authed
+ * failures — same convention as login().
+ */
+function changePassword(oldPassword, newPassword) {
+    ensureBound();
+    requireNonEmptyString('oldPassword', oldPassword);
+    requireNonEmptyString('newPassword', newPassword);
+    const rc = fns.ChangePassword(oldPassword, newPassword);
+    if (rc === Status.OK) return true;
+    if (rc === Status.SERVER) return false; // GetErrorMessage carries the reason
+    throw new AtlasError(rc);
 }
 
 /**
@@ -586,10 +645,15 @@ function logout() {
 // not a segfault.
 const data = {
     getLicense:         () => { ensureBound(); return readString(fns.GetLicense); },
+    // getUsername returns the password-account name when the session was opened via
+    // login(username, password). Empty string for license-only logins — same semantics
+    // as Atlas::Data::GetUsername() on the C++ side.
+    getUsername:        () => { ensureBound(); return readString(fns.GetUsername); },
     getHWID:            () => { ensureBound(); return readString(fns.GetHWID); },
     getIP:              () => { ensureBound(); return readString(fns.GetIP); },
     getExpiry:          () => { ensureBound(); return readString(fns.GetExpiry); },
-    getLevel:           () => { ensureBound(); return readString(fns.GetLevel); },
+    // getLevel returns a plain number (0 when unknown or unauthenticated).
+    getLevel:           () => { ensureBound(); return fns.GetLevel(); },
     getNote:            () => { ensureBound(); return readString(fns.GetNote); },
     getUserCount:       () => { ensureBound(); return readString(fns.GetUserCount); },
     getActiveUserCount: () => { ensureBound(); return readString(fns.GetActiveUserCount); },
@@ -603,6 +667,7 @@ const network = {
     checkAuthentication,
     banUser,
     submitLog,
+    changePassword,
     download,
 };
 
@@ -645,6 +710,7 @@ module.exports = {
     getResolvedAppHash,
     startup,
     login,
+    register,
     exit,
     logout,
     data,
