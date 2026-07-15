@@ -14,7 +14,7 @@ Console Example/
 └── Atlas Auth Example.js        the whole example — ~60 lines
 ```
 
-Requires the SDK sitting at [`../shared/src`](../shared/src/) and `Atlas.dll` at [`../shared/Atlas.dll`](../shared/Atlas.dll) — both are in this repo.
+Requires the SDK sitting at [`../Atlas SDK/src`](../Atlas%20SDK/src/) and `Atlas.dll` at [`../Atlas SDK/Atlas.dll`](../Atlas%20SDK/Atlas.dll) — both are in this repo.
 
 ---
 
@@ -73,7 +73,7 @@ Just the three moves:
 2. **`atlas.startup()`** — initializes the DLL, snapshots executable pages, starts watchdog threads.
 3. **`atlas.login(license)`** — authenticates against the server. Returns `true` / `false`.
 
-That's the shape. Full API surface in [`../shared/src/index.js`](../shared/src/index.js); reference table in [`../README.md`](../README.md#api-reference).
+That's the shape. Full API surface in [`../Atlas SDK/src/index.js`](../Atlas%20SDK/src/index.js); reference table in [`../README.md`](../README.md#api-reference).
 
 ---
 

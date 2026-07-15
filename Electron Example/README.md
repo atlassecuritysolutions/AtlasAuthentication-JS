@@ -17,7 +17,7 @@ Electron Example/
 └── package.json                         Electron-specific manifest (electron, koffi)
 ```
 
-Requires the SDK sitting at [`../shared/src`](../shared/src/) and `Atlas.dll` at [`../shared/Atlas.dll`](../shared/Atlas.dll) — both are in this repo.
+Requires the SDK sitting at [`../Atlas SDK/src`](../Atlas%20SDK/src/) and `Atlas.dll` at [`../Atlas SDK/Atlas.dll`](../Atlas%20SDK/Atlas.dll) — both are in this repo.
 
 ---
 
@@ -115,8 +115,8 @@ Bundle `Atlas.dll` alongside your `.asar` via `electron-builder`'s `extraResourc
 
 ```json
 "extraResources": [
-    { "from": "vendor/atlas-auth/shared/Atlas.dll",     "to": "Atlas.dll" },
-    { "from": "vendor/atlas-auth/shared/Atlas.dll.sig", "to": "Atlas.dll.sig" }
+    { "from": "vendor/atlas-auth/Atlas SDK/Atlas.dll",     "to": "Atlas.dll" },
+    { "from": "vendor/atlas-auth/Atlas SDK/Atlas.dll.sig", "to": "Atlas.dll.sig" }
 ]
 ```
 
@@ -124,7 +124,7 @@ Then point the SDK at the packaged path explicitly:
 
 ```js
 const path = require('path');
-const atlas = require('./vendor/atlas-auth/shared/src');
+const atlas = require('./vendor/atlas-auth/Atlas SDK/src');
 
 atlas.init({
     dllPath: path.join(process.resourcesPath, 'Atlas.dll'),

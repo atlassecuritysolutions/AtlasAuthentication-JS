@@ -40,7 +40,7 @@ This binding wraps `Atlas.dll` (built from the same C++ sources as the static `.
 - Mutual watchdog on two threads driven by hardware performance counters.
 - On integrity failure, the process is ended via kernel `__fastfail()` — no dialog, no exception handler, nothing catchable.
 
-Same stack as the C++ SDK; you're just calling it through JavaScript.
+Same stack as the C++ SDK, called through JavaScript.
 
 ---
 
@@ -49,7 +49,7 @@ Same stack as the C++ SDK; you're just calling it through JavaScript.
 ```
 JS Integration/
 ├── package.json                            top-level manifest — `npm install` here
-├── shared/
+├── Atlas SDK/
 │   ├── Atlas.dll                             the DLL that runs the protection stack
 │   ├── Atlas.dll.sig                         Ed25519 signature for the auto-updater
 │   ├── Atlas.lib / Atlas.exp                 MSVC import library (unused at runtime)
@@ -107,7 +107,7 @@ cd "JS Integration"
 npm install
 ```
 
-That pulls `koffi` into `node_modules/`. `Atlas.dll` already sits in `shared/`.
+That pulls `koffi` into `node_modules/`. `Atlas.dll` already sits in `Atlas SDK/`.
 
 For the Electron example, additionally:
 
@@ -148,7 +148,7 @@ Open the dashboard **Logs** — your login is there. **Sessions → Kick** ends 
 
 ## Electron example
 
-A real desktop app: windowed login form → welcome screen, cold-steel design, Atlas in the main process with a narrow IPC surface, renderer fully sandboxed.
+A real desktop app: windowed login form → welcome screen, Atlas in the main process with a narrow IPC surface, renderer fully sandboxed.
 
 **Read [Electron security model](#electron-security-model) before you ship any Electron app using Atlas.** It's mandatory.
 
@@ -182,7 +182,7 @@ git clone https://github.com/atlassecuritysolutions/AtlasAuthentication-JS.git v
 
 Then require:
 ```js
-const atlas = require('./vendor/atlas-auth/shared/src');
+const atlas = require('./vendor/atlas-auth/Atlas SDK/src');
 ```
 
 We deliberately don't publish to npm — `Atlas.dll` is committed to the repo and versioned with the JS binding. Vendoring guarantees you know exactly which DLL you're loading. No lock-file games, no supply-chain surprises.
@@ -198,7 +198,7 @@ Only runtime dep.
 ### Wire it up
 
 ```js
-const atlas = require('./vendor/atlas-auth/shared/src');
+const atlas = require('./vendor/atlas-auth/Atlas SDK/src');
 
 atlas.setApiKey(process.env.ATLAS_API_KEY);   // or your signed remote config
 atlas.startup();
@@ -220,17 +220,21 @@ Once you have a shipping build, hash your `.asar` (Electron) or entry script (No
 
 ## API reference
 
-Every C++ namespace call has an exact JavaScript equivalent — same name, same order, same return shape. TypeScript typings ship in [`shared/src/index.d.ts`](shared/src/index.d.ts).
+Every C++ namespace call has an exact JavaScript equivalent — same name, same order, same return shape. TypeScript typings ship in [`Atlas SDK/src/index.d.ts`](Atlas%20SDK/src/index.d.ts).
 
 ### Core
 
 ```js
-atlas.setApiKey(key)         // → true; call before startup()
-atlas.startup()              // → true; initialise DLL + protection stack
-atlas.login(licenseKey)      // → boolean (true = success, false = rejected)
-atlas.logout()               // → true; gentle sign-out
-atlas.exit()                 // → void; kernel-level fastfail
+atlas.setApiKey(key)                             // → true; call before startup()
+atlas.startup()                                  // → true; initialise DLL + protection stack
+atlas.login(licenseKey)                          // → boolean; license-only login
+atlas.login(username, password)                  // → boolean; user-account login
+atlas.register(licenseKey, username, password)   // → boolean; bind license → new account
+atlas.logout()                                   // → true; gentle sign-out
+atlas.exit()                                     // → void; kernel-level fastfail
 ```
+
+Three login paths, one auth stack. A license key alone authenticates a single-user, hardware-bound install. `register` binds a license key to a username + password so the end user can carry their license across devices without you rotating HWIDs; after that, `login(username, password)` authenticates them anywhere the HWID rules of the license permit. Post-login, every `data.*` and `network.*` call is identical regardless of path.
 
 ### `atlas.data` — session state (valid after `login`)
 
@@ -278,6 +282,8 @@ atlas.Status         // { OK, NOT_STARTED, NO_API_KEY, LOGIN_FAILED, NOT_AUTHED,
 | `Atlas::API_KEY = k` | `atlas.setApiKey(k)` | `true` |
 | `Atlas::Startup()` | `atlas.startup()` | `true` |
 | `Atlas::Login(k)` | `atlas.login(k)` | `boolean` |
+| `Atlas::Login(u, p)` | `atlas.login(u, p)` | `boolean` |
+| `Atlas::Register(k, u, p)` | `atlas.register(k, u, p)` | `boolean` |
 | `Atlas::Logout()` | `atlas.logout()` | `true` |
 | `Atlas::Helper::Exit()` | `atlas.exit()` | `void` |
 | `Atlas::Data::*` | `atlas.data.*` (camelCase) | same shape |
@@ -315,7 +321,7 @@ atlas.setAppHash('a1b2c3d4e5f6...64chars');   // CI computed this at build time
 atlas.startup();
 ```
 
-**Debug — see what the DLL will actually send:**
+**Debug — see the hash the DLL will send:**
 ```js
 atlas.setAppHashFromFile('./resources/app.asar');
 console.log(atlas.getResolvedAppHash());
@@ -391,7 +397,7 @@ Unlike a C++ user's `Atlas::API_KEY` (compiled into scrambled bytes), a JS user'
 **Mitigations, best to worst:**
 
 1. **Fetch the key from your own signed remote config at runtime.** Don't hardcode in `main.js`. Sign the config with a public key you ship with your app; verify on load.
-2. **Treat the key as a per-app identifier, not a secret.** HMAC + HWID + license validation are what actually authenticate; the API key routes the request. A leaked key does not, by itself, let an attacker impersonate a user.
+2. **Treat the key as a per-app identifier, not a secret.** HMAC + HWID + license validation authenticate the request; the API key only routes it to the right dashboard account. A leaked key does not, by itself, let an attacker impersonate a user.
 3. **Rotate the key via the dashboard if you suspect exposure.** Old key is invalidated within one heartbeat cycle.
 
 If you need something truly secret in the bundle, don't put it there — put it on your server and expose it only after a successful `atlas.login`.
@@ -406,8 +412,8 @@ For **Electron apps** shipping to users, bundle `Atlas.dll` alongside your `.asa
 
 ```json
 "extraResources": [
-    { "from": "vendor/atlas-auth/shared/Atlas.dll",     "to": "Atlas.dll" },
-    { "from": "vendor/atlas-auth/shared/Atlas.dll.sig", "to": "Atlas.dll.sig" }
+    { "from": "vendor/atlas-auth/Atlas SDK/Atlas.dll",     "to": "Atlas.dll" },
+    { "from": "vendor/atlas-auth/Atlas SDK/Atlas.dll.sig", "to": "Atlas.dll.sig" }
 ]
 ```
 
@@ -415,7 +421,7 @@ Then point the SDK at it explicitly:
 
 ```js
 const path = require('path');
-const atlas = require('./vendor/atlas-auth/shared/src');
+const atlas = require('./vendor/atlas-auth/Atlas SDK/src');
 
 atlas.init({
     dllPath: path.join(process.resourcesPath, 'Atlas.dll'),
@@ -487,9 +493,9 @@ The binding throws `AtlasError` for anything that isn't a normal login rejection
 
 **`Atlas SDK is Windows-only` at `require()`** — correct. Atlas is Windows x64 by product design. Use a native Windows Node install (no WSL, Docker, macOS, Linux).
 
-**`koffi: Failed to load Atlas.dll`** — confirm `shared/Atlas.dll` exists; set `ATLAS_DLL_PATH` explicitly to a fully-qualified path; in a packaged Electron app, check that `extraResources` copied Atlas.dll into `process.resourcesPath` and you're passing `init({ dllPath: ... })`.
+**`koffi: Failed to load Atlas.dll`** — confirm `Atlas SDK/Atlas.dll` exists; set `ATLAS_DLL_PATH` explicitly to a fully-qualified path; in a packaged Electron app, check that `extraResources` copied Atlas.dll into `process.resourcesPath` and you're passing `init({ dllPath: ... })`.
 
-**`Atlas.dll returned unparseable version`** — you're loading an old DLL against a newer binding. Update `Atlas.dll` from this repo's `shared/` folder or opt into the auto-updater.
+**`Atlas.dll returned unparseable version`** — you're loading an old DLL against a newer binding. Update `Atlas.dll` from this repo's `Atlas SDK/` folder or opt into the auto-updater.
 
 **Node process silently exits on `startup()`** — the SDK's `__fastfail` fired. Check dashboard **Logs**. Common: API key still `'YOUR_API_KEY'`; debugger attached to `node.exe` (VS Code JS debugger, Chrome DevTools inspector, `--inspect`); integrity check tripped. Electron renderer DevTools is fine; the *main-process* inspector is what Atlas refuses.
 

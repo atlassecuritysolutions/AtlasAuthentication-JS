@@ -15,8 +15,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 
-// SDK lives one level up in `shared/src`. Point at it explicitly.
-const atlas = require('../shared/src');
+// SDK lives one level up in `Atlas SDK/src`. Point at it explicitly.
+const atlas = require('../Atlas SDK/src');
 
 let mainWindow = null;
 
@@ -65,27 +65,70 @@ function initAtlas() {
 
 // ── IPC surface - narrow on purpose ─────────────────────────────────────────
 
-ipcMain.handle('atlas:login', async (_event, licenseKey) => {
-    if (typeof licenseKey !== 'string' || !licenseKey.trim()) {
-        return { ok: false, error: 'Enter a license key.' };
-    }
+// Shared session-info builder. `username` is empty for license-only logins;
+// the renderer decides whether to show a Change-password button based on it.
+function sessionSnapshot() {
+    return {
+        ok: true,
+        username:   atlas.data.getUsername(),
+        license:    atlas.data.getLicense(),
+        hwid:       atlas.data.getHWID(),
+        ip:         atlas.data.getIP(),
+        expiry:     atlas.data.getExpiry(),
+        level:      atlas.data.getLevel(),        // number
+        note:       atlas.data.getNote(),
+        userCount:  atlas.data.getUserCount(),
+        active:     atlas.data.getActiveUserCount(),
+    };
+}
+
+// atlas:login now accepts three flows discriminated by the `mode` field so a
+// single IPC handler powers License / User / Register. The renderer picks the
+// mode via a segmented control (mirrors the Console + ImGui examples).
+ipcMain.handle('atlas:login', async (_event, payload) => {
+    const p = payload || {};
+    const mode = p.mode || 'license';
     try {
-        const ok = atlas.login(licenseKey.trim());
-        if (!ok) return { ok: false, error: atlas.data.getErrorMessage() || 'Authentication rejected by the server.' };
-        // Return full session snapshot for the welcome screen. Never send the
-        // license itself here -- renderer already has it (user typed it). We
-        // do include a display-safe echo (masked) so the welcome header can
-        // show "logged in as ATLAS-XXXX-*****" without exposing the full key.
-        return {
-            ok: true,
-            hwid:       atlas.data.getHWID(),
-            ip:         atlas.data.getIP(),
-            expiry:     atlas.data.getExpiry(),
-            level:      atlas.data.getLevel(),
-            note:       atlas.data.getNote(),
-            userCount:  atlas.data.getUserCount(),
-            active:     atlas.data.getActiveUserCount(),
-        };
+        if (mode === 'license') {
+            const k = String(p.license || '').trim();
+            if (!k) return { ok: false, error: 'Enter a license key.' };
+            if (!atlas.login(k)) return { ok: false, error: atlas.data.getErrorMessage() || 'Authentication rejected by the server.' };
+            return sessionSnapshot();
+        }
+        if (mode === 'user') {
+            const u = String(p.username || '').trim();
+            const w = String(p.password || '');
+            if (!u || !w) return { ok: false, error: 'Enter your username and password.' };
+            if (!atlas.login(u, w)) return { ok: false, error: atlas.data.getErrorMessage() || 'Authentication rejected by the server.' };
+            return sessionSnapshot();
+        }
+        if (mode === 'register') {
+            const k = String(p.license || '').trim();
+            const u = String(p.username || '').trim();
+            const w = String(p.password || '');
+            if (!k || !u || !w) return { ok: false, error: 'Fill every field to register.' };
+            if (!atlas.register(k, u, w)) return { ok: false, error: atlas.data.getErrorMessage() || 'Registration rejected by the server.' };
+            // Auto-sign-in as the newly-created account — same as every other example.
+            if (!atlas.login(u, w)) return { ok: false, error: atlas.data.getErrorMessage() || 'Sign-in after registration failed.' };
+            return sessionSnapshot();
+        }
+        return { ok: false, error: `Unknown auth mode "${mode}".` };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
+});
+
+// Change the currently-signed-in password account's password. Rejected server-
+// side for license-only sessions; renderer only shows the affordance when
+// getUsername() is non-empty, but we still guard here.
+ipcMain.handle('atlas:change-password', async (_event, payload) => {
+    const oldp = String((payload && payload.oldPassword) || '');
+    const newp = String((payload && payload.newPassword) || '');
+    if (!oldp || newp.length < 6 || newp.length > 128) return { ok: false, error: 'Old password required; new password must be 6-128 chars.' };
+    try {
+        const ok = atlas.network.changePassword(oldp, newp);
+        if (ok) return { ok: true };
+        return { ok: false, error: atlas.data.getErrorMessage() || 'Password change rejected.' };
     } catch (err) {
         return { ok: false, error: err.message };
     }

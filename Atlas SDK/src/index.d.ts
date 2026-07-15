@@ -120,11 +120,22 @@ export function autoUpdateStatus(): AutoUpdateStatus;
 export function startup(): true;
 
 /**
- * Authenticate a license key. Returns true on success, false on server
- * rejection (call `data.getErrorMessage()` for the reason). Any other
- * failure throws AtlasError.
+ * Authenticate. Two overloads:
+ *   login(licenseKey)         — license-only login (classic single-user flow).
+ *   login(username, password) — user-account login (after Register).
+ * Returns true on success, false on server rejection (call
+ * `data.getErrorMessage()` for the reason). Any other failure throws AtlasError.
  */
 export function login(licenseKey: string): boolean;
+export function login(username: string, password: string): boolean;
+
+/**
+ * One-shot: bind a license key to a new username/password account. On
+ * success the caller should call login(username, password) to open a
+ * session — register itself does not. Fails if the license already has an
+ * account, the username is taken, or the license is invalid.
+ */
+export function register(licenseKey: string, username: string, password: string): boolean;
 
 /** Terminate the process through the SDK's own kill path. */
 export function exit(): void;
@@ -137,10 +148,13 @@ export function envInfo(): EnvInfo;
 
 export const data: {
     getLicense(): string;
+    /** Password-account username for sessions opened via login(user, pass); empty for license-only. */
+    getUsername(): string;
     getHWID(): string;
     getIP(): string;
     getExpiry(): string;
-    getLevel(): string;
+    /** Numeric access level (0 when unknown or not authenticated). */
+    getLevel(): number;
     getNote(): string;
     getUserCount(): string;
     getActiveUserCount(): string;
@@ -155,6 +169,13 @@ export const network: {
     /** durationMinutes = 0 means permanent. */
     banUser(reason: string, durationMinutes: number): true;
     submitLog(text: string): true;
+    /**
+     * Change the password of the current password account. Only valid after
+     * login(username, password). Returns true on success, false on server
+     * rejection (call data.getErrorMessage() for the reason). Throws AtlasError
+     * for transport / not-authed failures.
+     */
+    changePassword(oldPassword: string, newPassword: string): boolean;
     /** Fetch a panel-uploaded file by numeric ID. */
     download(fileId: number): Buffer;
 };

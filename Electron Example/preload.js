@@ -6,9 +6,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('atlas', {
-    login:   (licenseKey) => ipcRenderer.invoke('atlas:login', licenseKey),
-    status:  ()           => ipcRenderer.invoke('atlas:status'),
-    signout: ()           => ipcRenderer.invoke('atlas:signout'),
-    openUrl: (url)        => ipcRenderer.invoke('atlas:open-url', url),
-    env:     ()           => ipcRenderer.invoke('atlas:env'),
+    // Unified auth call — the renderer sends { mode, license?, username?, password? }
+    // and the main process routes to Atlas.Login(license) / Atlas.Login(u,p) /
+    // Atlas.Register(...). Returns a full session snapshot on success.
+    login:          (payload) => ipcRenderer.invoke('atlas:login', payload),
+    changePassword: (payload) => ipcRenderer.invoke('atlas:change-password', payload),
+    status:         ()        => ipcRenderer.invoke('atlas:status'),
+    signout:        ()        => ipcRenderer.invoke('atlas:signout'),
+    openUrl:        (url)     => ipcRenderer.invoke('atlas:open-url', url),
+    env:            ()        => ipcRenderer.invoke('atlas:env'),
 });

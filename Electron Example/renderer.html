@@ -32,7 +32,7 @@
             --font-mono:  Consolas,'Cascadia Mono','SF Mono',ui-monospace,monospace;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { height: 100%; overflow: hidden; }
+        html, body { height: 100%; overflow: auto; }
         body {
             font-family: var(--font-body);
             font-size: 14px;
@@ -42,7 +42,6 @@
             user-select: none;
         }
 
-        /* Single centred column. No split, no side pane. The form IS the app. */
         .app {
             display: flex;
             flex-direction: column;
@@ -82,11 +81,38 @@
         }
         .sub {
             font-size: 13px; color: var(--lo);
-            margin-bottom: 32px;
+            margin-bottom: 24px;
             line-height: 1.55;
         }
 
-        .field { margin-bottom: 18px; }
+        /* Segmented auth-mode picker — mirrors the C++ ImGui + Console flow */
+        .seg {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+        .seg button {
+            height: 34px;
+            border-radius: 8px;
+            background: var(--raised);
+            border: 1px solid var(--line);
+            color: var(--lo);
+            font-family: var(--font-body);
+            font-size: 12.5px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 120ms, color 120ms, border-color 120ms;
+        }
+        .seg button:hover { background: var(--raised-hi); color: var(--hi); }
+        .seg button.on {
+            background: var(--signal);
+            color: var(--ink);
+            border-color: var(--signal);
+            font-weight: 600;
+        }
+
+        .field { margin-bottom: 14px; }
         .field label {
             display: block;
             font-family: var(--font-mono);
@@ -96,7 +122,7 @@
             color: var(--faint);
             margin-bottom: 8px;
         }
-        input[type="text"] {
+        input[type="text"], input[type="password"] {
             width: 100%;
             height: 42px;
             padding: 0 14px;
@@ -109,11 +135,11 @@
             outline: none;
             transition: border-color 120ms, background 120ms;
         }
-        input[type="text"]:focus {
+        input:focus {
             border-color: var(--signal);
             background: var(--raised-hi);
         }
-        input[type="text"]::placeholder { color: var(--faint); }
+        input::placeholder { color: var(--faint); }
 
         button.primary {
             width: 100%;
@@ -169,6 +195,12 @@
             background: var(--signal-glow);
             color: var(--signal);
         }
+        .status.ok {
+            display: block;
+            border-color: rgba(98,205,160,0.32);
+            background: rgba(98,205,160,0.08);
+            color: var(--ok);
+        }
         .status.busy::after {
             content: '';
             display: inline-block;
@@ -184,8 +216,6 @@
             50%      { opacity: 0.9; transform: scale(1.2); }
         }
 
-        /* Site link, bottom-left, big + obvious + blue. This is the app
-           footer -- users always know where the real product lives. */
         .foot {
             position: absolute;
             left: 56px;
@@ -205,7 +235,6 @@
         }
         .foot a:hover { color: var(--signal-hi); }
 
-        /* Session-info card on the welcome screen */
         dl.info {
             display: grid;
             grid-template-columns: 90px 1fr;
@@ -232,7 +261,8 @@
             word-break: break-all;
             user-select: text;
         }
-        .welcome-actions { display: flex; gap: 10px; }
+        .welcome-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+        .change-pw { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
 
         .hidden { display: none !important; }
     </style>
@@ -247,14 +277,48 @@
             <div class="name">Atlas</div>
         </div>
 
-        <h1>Sign in</h1>
-        <p class="sub">Your license is checked against the Atlas server, tied to this machine's hardware, and re-verified every five seconds while the program runs.</p>
+        <h1 id="login-title">Sign in</h1>
+        <p class="sub" id="login-sub">Your license is checked against the Atlas server, tied to this machine's hardware, and re-verified every five seconds while the program runs.</p>
+
+        <!-- Auth-mode picker — matches the Console + ImGui examples so users
+             can test every auth path Atlas supports from any of the four. -->
+        <div class="seg" role="tablist">
+            <button data-mode="license" class="on">License key</button>
+            <button data-mode="user">User login</button>
+            <button data-mode="register">Register</button>
+        </div>
 
         <form id="login-form" autocomplete="off" spellcheck="false">
-            <div class="field">
+            <!-- License mode -->
+            <div class="field" data-mode="license">
                 <label for="license">License key</label>
-                <input id="license" type="text" placeholder="ATLAS-XXXXX-XXXXX-XXXXX" required />
+                <input id="license" type="text" placeholder="ATLAS-XXXXX-XXXXX-XXXXX" />
             </div>
+
+            <!-- User mode -->
+            <div class="field hidden" data-mode="user">
+                <label for="uname">Username</label>
+                <input id="uname" type="text" placeholder="your.username" />
+            </div>
+            <div class="field hidden" data-mode="user">
+                <label for="upw">Password</label>
+                <input id="upw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" />
+            </div>
+
+            <!-- Register mode -->
+            <div class="field hidden" data-mode="register">
+                <label for="reglic">License key to bind</label>
+                <input id="reglic" type="text" placeholder="ATLAS-XXXXX-XXXXX-XXXXX" />
+            </div>
+            <div class="field hidden" data-mode="register">
+                <label for="reguser">Pick a username (3-80 chars)</label>
+                <input id="reguser" type="text" placeholder="your.username" />
+            </div>
+            <div class="field hidden" data-mode="register">
+                <label for="regpw">Pick a password (6-128 chars)</label>
+                <input id="regpw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" />
+            </div>
+
             <button id="submit" class="primary" type="submit">Authenticate</button>
         </form>
 
@@ -278,6 +342,20 @@
         <div class="welcome-actions">
             <button id="signout" class="ghost">Sign out</button>
             <button id="check" class="ghost">Recheck session</button>
+            <button id="toggle-change-pw" class="ghost hidden">Change password</button>
+        </div>
+
+        <div id="change-pw" class="change-pw hidden">
+            <div class="field">
+                <label for="old-pw">Current password</label>
+                <input id="old-pw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;" />
+            </div>
+            <div class="field">
+                <label for="new-pw">New password (6-128 chars)</label>
+                <input id="new-pw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;" />
+            </div>
+            <button id="submit-change-pw" class="primary" type="button">Update password</button>
+            <div id="pw-status" class="status"></div>
         </div>
     </div>
 </div>
@@ -289,10 +367,11 @@
     const loginApp    = $('login-app');
     const welcomeApp  = $('welcome-app');
     const loginForm   = $('login-form');
-    const licenseInp  = $('license');
     const submitBtn   = $('submit');
     const statusDiv   = $('status');
     const welcomeInfo = $('welcome-info');
+
+    let currentMode = 'license';
 
     // Diagnostic: any preload/CSP breakage shows up in DevTools immediately.
     console.log('[atlas-example] renderer loaded, window.atlas is:', typeof window.atlas);
@@ -302,9 +381,9 @@
         console.error('[atlas-example] preload did not expose window.atlas!');
     }
 
-    function setStatus(kind, text) {
-        statusDiv.className = 'status ' + (kind || '');
-        statusDiv.textContent = text || '';
+    function setStatus(el, kind, text) {
+        el.className = 'status ' + (kind || '');
+        el.textContent = text || '';
     }
 
     function maskLicense(k) {
@@ -312,57 +391,91 @@
         return k.slice(0, 6) + '-*****-*****';
     }
 
+    // Segmented control — click to switch mode, show/hide fields, update copy.
+    function applyMode(mode) {
+        currentMode = mode;
+        document.querySelectorAll('.seg button').forEach((b) => {
+            b.classList.toggle('on', b.dataset.mode === mode);
+        });
+        document.querySelectorAll('.field[data-mode]').forEach((f) => {
+            f.classList.toggle('hidden', f.dataset.mode !== mode);
+        });
+        const title = mode === 'register' ? 'Create an account' : 'Sign in';
+        const sub = mode === 'register'
+            ? "Bind a license key to a new username/password. On success you'll be signed in as the new account automatically."
+            : mode === 'user'
+            ? 'Sign in with the username and password you registered earlier (or that was provisioned in the dashboard).'
+            : 'Your license is checked against the Atlas server, tied to this machine\'s hardware, and re-verified every five seconds while the program runs.';
+        $('login-title').textContent = title;
+        $('login-sub').textContent = sub;
+        submitBtn.textContent = mode === 'register' ? 'Register & sign in'
+            : mode === 'user' ? 'Sign in' : 'Authenticate';
+        setStatus(statusDiv, '', '');
+    }
+    document.querySelectorAll('.seg button').forEach((b) => {
+        b.addEventListener('click', () => applyMode(b.dataset.mode));
+    });
+
     function showLogin() {
         loginApp.classList.remove('hidden');
         welcomeApp.classList.add('hidden');
-        licenseInp.value = '';
+        // Reset every input so switching users doesn't leak stale values.
+        ['license', 'uname', 'upw', 'reglic', 'reguser', 'regpw', 'old-pw', 'new-pw'].forEach((id) => { $(id).value = ''; });
         submitBtn.disabled = false;
-        setStatus('', '');
-        licenseInp.focus();
+        setStatus(statusDiv, '', '');
+        $('change-pw').classList.add('hidden');
+        setStatus($('pw-status'), '', '');
+        applyMode('license');
     }
 
-    function renderWelcome(license, data) {
+    function renderWelcome(data) {
         welcomeInfo.innerHTML = '';
-        const rows = [
-            ['License',   maskLicense(license)],
-            ['Level',     data.level      || '-'],
+        const rows = [];
+        if (data.username) rows.push(['Username', data.username]);
+        rows.push(
+            ['License',   data.license ? maskLicense(data.license) : '-'],
+            ['Level',     String(data.level ?? 0)],
             ['Expiry',    data.expiry     || '-'],
             ['HWID',      data.hwid       || '-'],
             ['IP',        data.ip         || '-'],
             ['Note',      data.note       || '-'],
-        ];
+        );
         for (const [k, v] of rows) {
             const dt = document.createElement('dt'); dt.textContent = k;
             const dd = document.createElement('dd'); dd.textContent = v;
             welcomeInfo.appendChild(dt);
             welcomeInfo.appendChild(dd);
         }
+        // ChangePassword affordance — only for password-mode sessions.
+        $('toggle-change-pw').classList.toggle('hidden', !data.username);
         loginApp.classList.add('hidden');
         welcomeApp.classList.remove('hidden');
     }
 
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const k = licenseInp.value.trim();
-        if (!k) { setStatus('error', 'Enter a license key.'); return; }
         if (!window.atlas || typeof window.atlas.login !== 'function') {
-            setStatus('error', 'IPC bridge is not available. Restart the app.');
+            setStatus(statusDiv, 'error', 'IPC bridge is not available. Restart the app.');
             return;
         }
+        let payload = { mode: currentMode };
+        if (currentMode === 'license')  payload.license = $('license').value.trim();
+        if (currentMode === 'user')     { payload.username = $('uname').value.trim(); payload.password = $('upw').value; }
+        if (currentMode === 'register') { payload.license = $('reglic').value.trim(); payload.username = $('reguser').value.trim(); payload.password = $('regpw').value; }
+
         submitBtn.disabled = true;
-        setStatus('info busy', 'Contacting server...');
+        setStatus(statusDiv, 'info busy',
+            currentMode === 'register' ? 'Registering...' : 'Contacting server...');
         try {
-            const r = await window.atlas.login(k);
+            const r = await window.atlas.login(payload);
             if (r && r.ok) {
-                renderWelcome(k, r);
+                renderWelcome(r);
             } else {
-                setStatus('error', (r && r.error) || 'Authentication rejected.');
+                setStatus(statusDiv, 'error', (r && r.error) || 'Authentication rejected.');
                 submitBtn.disabled = false;
-                licenseInp.focus();
-                licenseInp.select();
             }
         } catch (err) {
-            setStatus('error', 'IPC error: ' + (err && err.message || String(err)));
+            setStatus(statusDiv, 'error', 'IPC error: ' + (err && err.message || String(err)));
             submitBtn.disabled = false;
         }
     });
@@ -376,25 +489,48 @@
         try {
             const s = await window.atlas.status();
             if (s.authenticated && !s.banned) {
-                setStatus('info', 'Session is holding.');
-                setTimeout(() => setStatus('', ''), 2500);
+                setStatus(statusDiv, 'info', 'Session is holding.');
+                setTimeout(() => setStatus(statusDiv, '', ''), 2500);
             } else {
-                setStatus('error', s.banned ? 'This session has been banned.' : 'Session is no longer valid.');
+                setStatus(statusDiv, 'error', s.banned ? 'This session has been banned.' : 'Session is no longer valid.');
                 setTimeout(showLogin, 1800);
             }
         } catch (err) {
-            setStatus('error', 'Status check failed: ' + err.message);
+            setStatus(statusDiv, 'error', 'Status check failed: ' + err.message);
         }
     });
 
-    // Website link -- routes through the main process via shell.openExternal.
-    // The renderer never gets shell access directly.
+    // Change password — toggles the inline form; submits via the change-password IPC.
+    $('toggle-change-pw').addEventListener('click', () => {
+        const box = $('change-pw');
+        box.classList.toggle('hidden');
+        $('toggle-change-pw').textContent = box.classList.contains('hidden') ? 'Change password' : 'Cancel change';
+        setStatus($('pw-status'), '', '');
+    });
+    $('submit-change-pw').addEventListener('click', async () => {
+        const oldp = $('old-pw').value;
+        const newp = $('new-pw').value;
+        if (!oldp || !newp) { setStatus($('pw-status'), 'error', 'Fill both fields.'); return; }
+        try {
+            const r = await window.atlas.changePassword({ oldPassword: oldp, newPassword: newp });
+            if (r && r.ok) {
+                setStatus($('pw-status'), 'ok', 'Password updated. Next login uses the new password.');
+                $('old-pw').value = ''; $('new-pw').value = '';
+            } else {
+                setStatus($('pw-status'), 'error', (r && r.error) || 'Password change failed.');
+            }
+        } catch (err) {
+            setStatus($('pw-status'), 'error', 'IPC error: ' + err.message);
+        }
+    });
+
+    // Website link — routes through the main process via shell.openExternal.
     $('site-link').addEventListener('click', async () => {
         try { await window.atlas.openUrl('https://atlassecurity.site'); }
         catch (e) { console.error('[atlas-example] openUrl failed:', e); }
     });
 
-    licenseInp.focus();
+    $('license').focus();
 </script>
 </body>
 </html>
