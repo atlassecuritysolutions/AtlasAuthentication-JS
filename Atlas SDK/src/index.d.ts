@@ -12,6 +12,7 @@ export const Status: {
     readonly BUFFER_TOO_SMALL: 6;
     readonly SERVER: 7;
     readonly INTERNAL: 8;
+    readonly NEEDS_VERIFY: 10;
 };
 
 /** Thrown by any Atlas call that fails outside the normal login-rejected path. */
@@ -137,8 +138,14 @@ export function login(username: string, password: string): boolean;
  */
 export function register(licenseKey: string, username: string, password: string): boolean;
 
+/** Redeem a license key onto the currently signed-in account. Stacks on existing expiry. */
+export function redeem(licenseKey: string): true;
+
 /** Terminate the process through the SDK's own kill path. */
 export function exit(): void;
+
+/** Gentle sign-out — closes the session, keeps the process running. */
+export function logout(): true;
 
 /** SDK/DLL version string ("1.0.0"). */
 export function version(): string;
@@ -150,6 +157,10 @@ export const data: {
     getLicense(): string;
     /** Password-account username for sessions opened via login(user, pass); empty for license-only. */
     getUsername(): string;
+    /** Account email, "" if none set or license-only session. */
+    getEmail(): string;
+    /** Password used at sign-in, "" for license-only sessions. */
+    getPassword(): string;
     getHWID(): string;
     getIP(): string;
     getExpiry(): string;
@@ -161,6 +172,14 @@ export const data: {
     getErrorMessage(): string;
     isAuthenticated(): boolean;
     isBanned(): boolean;
+    /** Signed-in account_users.id (0 = license-only / not signed in). */
+    getUserId(): number;
+    /**
+     * Seconds until the signed-in account expires. Returns
+     * `Number.POSITIVE_INFINITY` for accounts with no expiry, 0 for expired,
+     * a positive integer otherwise.
+     */
+    getSecondsUntilExpiry(): number | bigint;
 };
 
 export const network: {
@@ -178,4 +197,35 @@ export const network: {
     changePassword(oldPassword: string, newPassword: string): boolean;
     /** Fetch a panel-uploaded file by numeric ID. */
     download(fileId: number): Buffer;
+    /** Round-trip latency to the auth server in ms; -1 if unreachable. */
+    ping(): number;
+};
+
+// ─── Account-mode API ──────────────────────────────────────────────────────
+
+/**
+ * Result of `account.login()`. On `needs_verify`, prompt the user for the
+ * 8-digit code from their email and call `submitVerification(code)` — the
+ * SDK holds the pending challenge internally.
+ */
+export type AccountLoginResult =
+    | { status: 'ok'; userId: number }
+    | { status: 'needs_verify' }
+    | { status: 'wrong_credentials'; error: string };
+
+export const account: {
+    /** Create an account (no license binding). Does NOT sign the caller in. */
+    register(username: string, password: string, email?: string): true;
+    /** Sign in with username + password. Check `status` on the returned object. */
+    login(username: string, password: string): AccountLoginResult;
+    /** Submit the 8-digit code for the pending challenge from the last login(). */
+    submitVerification(eightDigitCode: string): true;
+    /** Resend the code for the pending challenge (60s server cooldown). */
+    resendVerification(): true;
+    /** Add days to the signed-in account. Stacks on existing expiry. */
+    redeem(licenseKey: string): true;
+    /** Start a password reset. Server always returns OK (anti-enumeration). */
+    requestPasswordReset(identifier: string): true;
+    /** Complete a reset with code + new password. Revokes all trusted devices. */
+    completePasswordReset(eightDigitCode: string, newPassword: string): true;
 };

@@ -1,21 +1,24 @@
-// Atlas Authentication Library — Example Usage (Node / Console)
+// Atlas Authentication Library - Example Usage (Node / Console)
 // Run as x64 Node >= 18 | Set your API key below.
 //
-// Mirrors the C++ Console example — three auth paths in one menu, plus a
-// post-login change-password prompt for user-mode sessions.
+// Mirrors the C++ Console example - three auth paths, one prompt each. Account
+// sign-in and registration handle the email-verification / confirmation code
+// inline, so this single script exercises every path Atlas supports.
 //
-//     [1] License key         classic single-user, HWID-bound flow
-//     [2] Username/password   sign in to a password account
-//     [3] Register            bind a license to a new username/password,
-//                             then auto-sign-in as the new account
+//     [1] License key       classic single-user, HWID-bound flow
+//     [2] Account sign-in   username + password + inline verification code
+//     [3] Register account  creates a new account, inline email confirmation
 //
-// Every downstream call — data.*, network.checkAuthentication,
-// network.submitLog, network.changePassword — works identically regardless of
+// Everything downstream - data.*, network.checkAuthentication,
+// network.submitLog, network.changePassword - works identically regardless of
 // which path was chosen.
 
-const atlas = require('../Atlas SDK/src');
+const atlas   = require('../Atlas SDK/src');
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const ask = (q) => new Promise((r) => rl.question(q, r));
 
-// Set your API key — copy from atlassecurity.site → dashboard → API keys.
+// Set your API key - copy from atlassecurity.site → dashboard → API keys.
 // (C++ users set this in Atlas.h; JS/Node users set it here in code.)
 atlas.setApiKey('YOUR_API_KEY');
 
@@ -26,83 +29,106 @@ atlas.setApiKey('YOUR_API_KEY');
     console.log('Atlas Authentication Example\n');
     console.log('Choose an auth path:');
     console.log('  [1] License key       (classic, HWID-bound)');
-    console.log('  [2] Username/password (existing password account)');
-    console.log('  [3] Register          (bind a license to a new user/pass)');
-
-    const choice = (await prompt('\nChoice [1/2/3]: ')).trim();
+    console.log('  [2] Account sign-in   (username + password + email verification)');
+    console.log('  [3] Register account  (creates a new account, optional email)\n');
+    const choice = (await ask('Choice [1/2/3]: ')).trim();
 
     let authed = false;
 
     if (choice === '1') {
-        const license = (await prompt('Enter license key: ')).trim();
-        console.log('Connecting to server...');
+        const license = (await ask('Enter license key: ')).trim();
         authed = atlas.login(license);
-        if (!authed) printError('Authentication failed!');
-    } else if (choice === '2') {
-        const username = (await prompt('Enter username: ')).trim();
-        const password = (await prompt('Enter password: ')).trim();
-        console.log('Connecting to server...');
-        authed = atlas.login(username, password);
-        if (!authed) printError('Authentication failed!');
-    } else if (choice === '3') {
-        const license  = (await prompt('Enter license key to bind: ')).trim();
-        const username = (await prompt('Pick a username (3-80 chars): ')).trim();
-        const password = (await prompt('Pick a password (6-128 chars): ')).trim();
-        console.log('Registering account...');
-        if (!atlas.register(license, username, password)) {
-            printError('Registration failed!');
+    }
+    else if (choice === '2') {
+        // Account sign-in - headless flow. account.login() returns a status
+        // object; on 'needs_verify' the server has emailed an 8-digit code
+        // to the account's address and is waiting for it.
+        const username = (await ask('Enter username: ')).trim();
+        const password = (await ask('Enter password: ')).trim();
+        const r = atlas.account.login(username, password);
+        if (r.status === 'ok') {
+            authed = true;
+        } else if (r.status === 'needs_verify') {
+            console.log('\nWe emailed an 8-digit code to the address on file for this account.');
+            const code = (await ask('Enter the code: ')).trim();
+            atlas.account.submitVerification(code);
+            authed = true;
         } else {
-            const info = atlas.data.getErrorMessage(); // Register success message rides on the same field
-            if (info) console.log(`[+] ${info}`);
-            console.log('Signing in with the new account...');
-            authed = atlas.login(username, password);
-            if (!authed) printError('Sign-in after registration failed!');
+            console.log(`\n[!] ${r.error || 'Wrong username or password.'}`);
         }
-    } else {
-        console.log('\nUnknown choice — exiting.');
+    }
+    else if (choice === '3') {
+        // Register - create the account and confirm the email. Register does
+        // NOT sign you in; re-run this example and pick [2] to sign in later.
+        const username = (await ask('Pick a username: ')).trim();
+        const password = (await ask('Pick a password: ')).trim();
+        const email    = (await ask('Email (optional - enter to skip): ')).trim();
+        try {
+            atlas.account.register(username, password, email || undefined);
+            if (email) {
+                console.log(`\nWe emailed an 8-digit confirmation code to ${email}.`);
+                const code = (await ask('Enter the code: ')).trim();
+                atlas.account.submitVerification(code);
+            }
+            console.log(`\n[+] Account '${username}' is ready. Run this example again and pick [2] to sign in.`);
+        } catch (err) {
+            console.log(`\n[!] ${err.message}`);
+        }
+        rl.close();
+        process.exit(0);
+    }
+    else {
+        console.log('\nUnknown choice - exiting.');
+        rl.close();
         process.exit(1);
     }
 
     if (!authed) {
-        console.log('\nPress Enter to exit...');
-        await prompt('');
+        console.log(`\n[!] Authentication failed. ${atlas.data.getErrorMessage()}`);
+        rl.close();
         process.exit(1);
     }
 
-    // Call periodically to verify the session is still valid — terminates if not.
+    // Call periodically to verify the session is still valid - terminates if not.
     atlas.network.checkAuthentication();
 
-    // Access user data after successful authentication. getUsername() is set
-    // only for password-mode logins; empty for license-only.
+    // Session data - every field is populated the moment authed is true.
+    // getUsername() is empty on license-only sessions.
     const username = atlas.data.getUsername();
     console.log('\n--- User Information ---');
-    if (username) console.log(`Username: ${username}`);
-    console.log(`License:  ${atlas.data.getLicense()}`);
-    console.log(`Expiry:   ${atlas.data.getExpiry()}`);
-    console.log(`IP:       ${atlas.data.getIP()}`);
-    console.log(`HWID:     ${atlas.data.getHWID()}`);
-    console.log(`Level:    ${atlas.data.getLevel()}`);   // number
-    console.log(`Note:     ${atlas.data.getNote()}`);
+    if (username) console.log(`Username:     ${username}`);
+    console.log(`License:      ${atlas.data.getLicense()}`);
+    console.log(`Expiry:       ${atlas.data.getExpiry()}`);
+    console.log(`IP:           ${atlas.data.getIP()}`);
+    console.log(`HWID:         ${atlas.data.getHWID()}`);
+    console.log(`Level:        ${atlas.data.getLevel()}`);
+    console.log(`Note:         ${atlas.data.getNote()}`);
     console.log(`Active Users: ${atlas.data.getActiveUserCount()}`);
     console.log(`Total Users:  ${atlas.data.getUserCount()}`);
 
-    // Send a custom log message — appears in your dashboard Logs tab.
+    // Send a custom log message - appears in your dashboard Logs tab.
     atlas.network.submitLog('User successfully completed the example');
 
-    // ChangePassword is only meaningful in a password-mode session. Mirrors the
-    // C++ Console example: we only offer the prompt when it applies.
+    // ChangePassword is only meaningful on a password-mode session.
     if (username) {
-        const yn = (await prompt('\nChange password? [y/N]: ')).trim().toLowerCase();
+        const yn = (await ask('\nChange password? [y/N]: ')).trim().toLowerCase();
         if (yn === 'y') {
-            const oldp = (await prompt('Current password: ')).trim();
-            const newp = (await prompt('New password (6-128 chars): ')).trim();
-            if (atlas.network.changePassword(oldp, newp)) {
-                console.log('[+] Password changed. Use the new password on your next login.');
-            } else {
-                printError('Password change failed!');
-            }
+            const oldp = (await ask('Current password: ')).trim();
+            const newp = (await ask('New password: ')).trim();
+            if (atlas.network.changePassword(oldp, newp))
+                console.log('[+] Password changed. Use the new password on your next sign-in.');
+            else
+                console.log(`[!] ${atlas.data.getErrorMessage()}`);
         }
     }
+
+    // Password reset - not run inline (the session we just opened works, a
+    // reset would only interrupt it). Wire these two calls into your own
+    // "forgot password" surface:
+    //
+    //     atlas.account.requestPasswordReset('username-or-email');
+    //     // ... user reads the 8-digit code from their email ...
+    //     atlas.account.completePasswordReset(code, newPassword);
 
     // Download a file uploaded via the Atlas Panel
     // const fileData = atlas.network.download(1);
@@ -111,21 +137,7 @@ atlas.setApiKey('YOUR_API_KEY');
     //     console.log(`\nFile downloaded (${fileData.length} bytes)`);
     // }
 
-    console.log('\nPress Enter to exit program fully...');
-    await prompt('');
+    await ask('\nPress Enter to exit program fully...');
+    rl.close();
     process.exit(0);
 })();
-
-// Small helpers kept at the bottom so main() reads top-to-bottom just like
-// the C++ example.
-function prompt(label) {
-    return new Promise((resolve) => {
-        const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
-        rl.question(label, (l) => { rl.close(); resolve(l); });
-    });
-}
-function printError(headline) {
-    const err = atlas.data.getErrorMessage();
-    console.log(`\n[!] ${headline}`);
-    if (err) console.log(`[!] Reason: ${err}`);
-}

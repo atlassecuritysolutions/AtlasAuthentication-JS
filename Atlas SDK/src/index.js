@@ -93,6 +93,9 @@ const Status = Object.freeze({
     BUFFER_TOO_SMALL: 6,
     SERVER: 7,
     INTERNAL: 8,
+    // LoginAccountEx returns this when the server wants an emailed 8-digit code.
+    // Caller renders their own prompt then calls submitVerification(code).
+    NEEDS_VERIFY: 10,
 });
 
 // Map a numeric status back to a readable name. Not localized on purpose:
@@ -165,9 +168,12 @@ function ensureBound(options) {
             BanUser:             lib.func('int __cdecl Atlas_BanUser(const char*, int)'),
             SubmitLog:           lib.func('int __cdecl Atlas_SubmitLog(const char*)'),
             ChangePassword:      lib.func('int __cdecl Atlas_ChangePassword(const char*, const char*)'),
+            Ping:                lib.func('int __cdecl Atlas_Ping()'),
             Download:            lib.func('int __cdecl Atlas_Download(int, _Out_ uint8_t*, size_t)'),
             GetLicense:          lib.func('int __cdecl Atlas_GetLicense(_Out_ char*, size_t)'),
             GetUsername:         lib.func('int __cdecl Atlas_GetUsername(_Out_ char*, size_t)'),
+            GetEmail:            lib.func('int __cdecl Atlas_GetEmail(_Out_ char*, size_t)'),
+            GetPassword:         lib.func('int __cdecl Atlas_GetPassword(_Out_ char*, size_t)'),
             GetHWID:             lib.func('int __cdecl Atlas_GetHWID(_Out_ char*, size_t)'),
             GetIP:               lib.func('int __cdecl Atlas_GetIP(_Out_ char*, size_t)'),
             GetExpiry:           lib.func('int __cdecl Atlas_GetExpiry(_Out_ char*, size_t)'),
@@ -177,6 +183,15 @@ function ensureBound(options) {
             GetActiveUserCount:  lib.func('int __cdecl Atlas_GetActiveUserCount(_Out_ char*, size_t)'),
             GetErrorMessage:     lib.func('int __cdecl Atlas_GetErrorMessage(_Out_ char*, size_t)'),
             Version:             lib.func('int __cdecl Atlas_Version(_Out_ char*, size_t)'),
+            LoginAccountEx:        lib.func('int __cdecl Atlas_LoginAccountEx(const char*, const char*, _Out_ int*)'),
+            SubmitVerify:          lib.func('int __cdecl Atlas_SubmitVerify(const char*)'),
+            ResendVerify:          lib.func('int __cdecl Atlas_ResendVerify()'),
+            RegisterAccount:       lib.func('int __cdecl Atlas_RegisterAccount(const char*, const char*, const char*)'),
+            RedeemKey:             lib.func('int __cdecl Atlas_RedeemKey(int, const char*)'),
+            RequestPasswordReset:  lib.func('int __cdecl Atlas_RequestPasswordReset(const char*)'),
+            CompletePasswordReset: lib.func('int __cdecl Atlas_CompletePasswordReset(const char*, const char*)'),
+            GetUserId:             lib.func('int __cdecl Atlas_GetUserId()'),
+            GetSecondsUntilExpiry: lib.func('int64_t __cdecl Atlas_GetSecondsUntilExpiry()'),
         };
     } catch (e) {
         // Any missing export means the loaded DLL is older than this binding
@@ -580,8 +595,8 @@ function submitLog(text) {
 /**
  * Change the password of the current password account. Only valid after
  * login(username, password); license-only sessions return false with the
- * reason in data.getErrorMessage(). newPassword must be 6-128 chars and
- * differ from oldPassword.
+ * reason in data.getErrorMessage(). newPassword must be 3-128 characters
+ * and differ from oldPassword.
  *
  * Returns true on success, false on server rejection (bad credentials, same
  * password, account paused). Throws AtlasError for transport / not-authed
@@ -649,6 +664,8 @@ const data = {
     // login(username, password). Empty string for license-only logins — same semantics
     // as Atlas::Data::GetUsername() on the C++ side.
     getUsername:        () => { ensureBound(); return readString(fns.GetUsername); },
+    getEmail:           () => { ensureBound(); return readString(fns.GetEmail); },
+    getPassword:        () => { ensureBound(); return readString(fns.GetPassword); },
     getHWID:            () => { ensureBound(); return readString(fns.GetHWID); },
     getIP:              () => { ensureBound(); return readString(fns.GetIP); },
     getExpiry:          () => { ensureBound(); return readString(fns.GetExpiry); },
@@ -660,7 +677,151 @@ const data = {
     getErrorMessage:    () => { ensureBound(); return readString(fns.GetErrorMessage); },
     isAuthenticated:    () => { ensureBound(); return fns.IsAuthenticated() === 1; },
     isBanned:           () => { ensureBound(); return fns.IsBanned() === 1; },
+    // Signed-in account_users.id. 0 = license-only session or not signed in.
+    getUserId:          () => { ensureBound(); return fns.GetUserId(); },
+    // Seconds until the current account's expiry.
+    // Number.POSITIVE_INFINITY = no expiry, 0 = expired.
+    getSecondsUntilExpiry: () => {
+        ensureBound();
+        const n = fns.GetSecondsUntilExpiry();
+        if (n < 0n && n === -1n) return Number.POSITIVE_INFINITY;
+        // koffi returns int64 as BigInt in modern Node; coerce to Number
+        // when it fits, else return the BigInt so the caller can inspect.
+        if (typeof n === 'bigint') {
+            return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n;
+        }
+        return n < 0 ? Number.POSITIVE_INFINITY : n;
+    },
 };
+
+// ── Account-mode API ──────────────────────────────────────────────────────
+// Programmatic surface for Node / Electron / CLI callers. No Win32 dialogs.
+//
+// Flow:
+//   1. atlas.account.register(...)          create the account
+//   2. atlas.account.login(u, p)            → { status: 'ok' | 'needs_verify' | ... }
+//   3. if 'needs_verify': prompt the user for the code, then
+//      atlas.account.submitVerification(code)
+//   4. atlas.account.redeemKey(userId, licenseKey)  → add days
+
+function accountRegister(username, password, email) {
+    ensureBound();
+    requireNonEmptyString('username', username);
+    requireNonEmptyString('password', password);
+    if (email != null) {
+        if (typeof email !== 'string') {
+            throw new AtlasError(Status.BAD_ARG, 'email must be a string or omitted');
+        }
+    }
+    const rc = fns.RegisterAccount(username, password, email || '');
+    if (rc !== Status.OK) {
+        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Register failed');
+    }
+    return true;
+}
+
+function accountLogin(username, password) {
+    ensureBound();
+    requireNonEmptyString('username', username);
+    requireNonEmptyString('password', password);
+    const userIdOut = [0];
+    const rc = fns.LoginAccountEx(username, password, userIdOut);
+    if (rc === Status.OK) {
+        return { status: 'ok', userId: userIdOut[0] };
+    }
+    if (rc === Status.NEEDS_VERIFY) {
+        return { status: 'needs_verify' };
+    }
+    if (rc === Status.LOGIN_FAILED) {
+        return {
+            status: 'wrong_credentials',
+            error: readString(fns.GetErrorMessage) || 'Wrong username or password',
+        };
+    }
+    throw new AtlasError(rc, readString(fns.GetErrorMessage));
+}
+
+function submitVerification(eightDigitCode) {
+    ensureBound();
+    requireNonEmptyString('eightDigitCode', eightDigitCode);
+    if (!/^\d{8}$/.test(eightDigitCode)) {
+        throw new AtlasError(Status.BAD_ARG, 'eightDigitCode must be exactly 8 digits');
+    }
+    const rc = fns.SubmitVerify(eightDigitCode);
+    if (rc !== Status.OK) {
+        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Verification failed');
+    }
+    return true;
+}
+
+function resendVerification() {
+    ensureBound();
+    const rc = fns.ResendVerify();
+    if (rc !== Status.OK) {
+        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Resend failed');
+    }
+    return true;
+}
+
+/**
+ * Redeem a license key onto the currently signed-in account. Stacks on the
+ * existing expiry. The DLL reads the user_id from the current session; callers
+ * no longer pass one.
+ */
+function redeem(licenseKey) {
+    ensureBound();
+    requireNonEmptyString('licenseKey', licenseKey);
+    const rc = fns.RedeemKey(0, licenseKey);  // 0 → DLL uses session-scoped user_id
+    if (rc !== Status.OK) {
+        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Redeem failed');
+    }
+    return true;
+}
+
+// Server always returns OK (anti-enumeration). Never leak to the user
+// whether the identifier actually matched an account.
+function requestPasswordReset(identifier) {
+    ensureBound();
+    requireNonEmptyString('identifier', identifier);
+    const rc = fns.RequestPasswordReset(identifier);
+    if (rc !== Status.OK) {
+        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Reset request failed');
+    }
+    return true;
+}
+
+function completePasswordReset(eightDigitCode, newPassword) {
+    ensureBound();
+    requireNonEmptyString('eightDigitCode', eightDigitCode);
+    requireNonEmptyString('newPassword', newPassword);
+    if (!/^\d{8}$/.test(eightDigitCode)) {
+        throw new AtlasError(Status.BAD_ARG, 'eightDigitCode must be exactly 8 digits');
+    }
+    const rc = fns.CompletePasswordReset(eightDigitCode, newPassword);
+    if (rc !== Status.OK) {
+        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Complete reset failed');
+    }
+    return true;
+}
+
+const account = {
+    register:               accountRegister,
+    login:                  accountLogin,
+    submitVerification,
+    resendVerification,
+    redeem,
+    requestPasswordReset,
+    completePasswordReset,
+};
+
+/**
+ * Round-trip latency to the auth server in milliseconds; -1 if unreachable.
+ * Useful for pre-flight health checks before showing a login UI.
+ */
+function ping() {
+    ensureBound();
+    return fns.Ping();
+}
 
 // ── Network namespace — mirrors Atlas::Network:: ────────────────────────────
 const network = {
@@ -669,6 +830,7 @@ const network = {
     submitLog,
     changePassword,
     download,
+    ping,
 };
 
 // ── metadata ────────────────────────────────────────────────────────────────
@@ -711,10 +873,12 @@ module.exports = {
     startup,
     login,
     register,
+    redeem,     // top-level shortcut for the current session's account
     exit,
     logout,
     data,
     network,
+    account,
     version,
     envInfo,
     Status,
