@@ -3,126 +3,164 @@
 <head>
     <meta charset="utf-8" />
     <!--
-        CSP: allow only self-origin resources. Inline script + style are used
-        because this is a single-file example; the actual security boundary
-        that matters (renderer can't reach Node) is enforced by the preload
-        script under contextIsolation. See preload.js for the contract.
+        CSP: allow self-origin, inline styles/scripts (single-file example),
+        and Google Fonts for Inter. The security boundary that actually matters
+        (renderer can't touch Node) is enforced by contextIsolation + sandbox
+        in the main process, not by CSP.
     -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
+          content="default-src 'self';
+                   script-src 'self' 'unsafe-inline';
+                   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                   font-src https://fonts.gstatic.com;
+                   img-src 'self' data:;
+                   connect-src 'none';" />
     <title>Atlas</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+
     <style>
         /* Atlas cold-steel palette (source: atlassecurity.site) */
         :root {
-            --ink:        #080f1e;
-            --panel:      #0e1a30;
-            --raised:     #14233d;
-            --raised-hi:  #182a45;
-            --line:       #22375a;
-            --line-soft:  #17263f;
-            --hi:         #f1f5fb;
-            --lo:         #93a7c4;
-            --faint:      #566d8f;
-            --signal:     #4aa3ec;
-            --signal-hi:  #5fb0e8;
-            --signal-glow: rgba(74,163,236,0.14);
-            --ok:         #62cda0;
-            --alert:      #f0817f;
-            --font-body:  'Segoe UI',-apple-system,system-ui,sans-serif;
-            --font-mono:  Consolas,'Cascadia Mono','SF Mono',ui-monospace,monospace;
+            --ink:         #080f1e;
+            --panel:       #0e1a30;
+            --raised:      #14233d;
+            --raised-hi:   #182a45;
+            --line:        #22375a;
+            --line-soft:   #17263f;
+            --hi:          #f1f5fb;
+            --lo:          #93a7c4;
+            --faint:       #566d8f;
+            --signal:      #4aa3ec;
+            --signal-hi:   #5fb0e8;
+            --signal-glow: rgba(74, 163, 236, 0.12);
+            --ok:          #62cda0;
+            --alert:       #f0817f;
+            --warn:        #e6b95c;
+
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', Consolas, 'Cascadia Mono', ui-monospace, monospace;
         }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { height: 100%; overflow: auto; }
+        html, body { height: 100%; }
         body {
-            font-family: var(--font-body);
+            font-family: var(--font-sans);
             font-size: 14px;
+            font-feature-settings: 'ss01' on, 'cv11' on;      /* Inter: friendlier digits + open a */
+            font-variant-ligatures: none;
             color: var(--hi);
             background: var(--ink);
             -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
             user-select: none;
+            overflow-x: hidden;
         }
 
+        /* ── Layout ────────────────────────────────────────────────────────── */
         .app {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
             min-height: 100vh;
-            padding: 48px 56px;
+            display: grid;
+            place-items: center;
+            padding: 56px 24px 96px;
         }
-        .col {
+        .card {
             width: 100%;
-            max-width: 420px;
+            max-width: 400px;
             display: flex;
             flex-direction: column;
         }
 
-        .brand-mark {
-            display: flex; align-items: center; gap: 12px;
-            margin-bottom: 44px;
+        /* ── Brand ─────────────────────────────────────────────────────────── */
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 40px;
         }
-        .brand-mark .glyph {
+        .brand .mark {
             width: 26px; height: 26px;
-            background: var(--signal);
-            border-radius: 6px;
+            background: var(--raised);
+            border: 1px solid var(--line);
+            border-radius: 7px;
             display: grid; place-items: center;
-            font-size: 14px; font-weight: 700;
-            color: var(--ink);
         }
-        .brand-mark .name {
-            font-size: 15px; font-weight: 600;
-            letter-spacing: -0.01em;
+        .brand .mark svg { width: 12px; height: 12px; }
+        .brand .name {
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: -0.015em;
         }
 
+        /* ── Type ──────────────────────────────────────────────────────────── */
         h1 {
-            font-size: 24px; font-weight: 600;
-            letter-spacing: -0.015em;
-            margin-bottom: 6px;
+            font-size: 26px;
+            font-weight: 600;
+            letter-spacing: -0.022em;
+            line-height: 1.15;
+            margin-bottom: 8px;
         }
         .sub {
-            font-size: 13px; color: var(--lo);
-            margin-bottom: 24px;
+            font-size: 13.5px;
             line-height: 1.55;
+            color: var(--lo);
+            margin-bottom: 28px;
         }
 
-        /* Segmented auth-mode picker — mirrors the C++ ImGui + Console flow */
+        /* ── Segmented (mode picker) ───────────────────────────────────────── */
         .seg {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            gap: 6px;
-            margin-bottom: 20px;
-        }
-        .seg button {
-            height: 34px;
-            border-radius: 8px;
+            gap: 4px;
+            padding: 4px;
             background: var(--raised);
             border: 1px solid var(--line);
+            border-radius: 10px;
+            margin-bottom: 22px;
+        }
+        .seg button {
+            appearance: none;
+            height: 32px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
             color: var(--lo);
-            font-family: var(--font-body);
+            font-family: var(--font-sans);
             font-size: 12.5px;
             font-weight: 500;
+            letter-spacing: -0.005em;
             cursor: pointer;
-            transition: background 120ms, color 120ms, border-color 120ms;
+            transition: color 140ms ease, background 140ms ease;
         }
-        .seg button:hover { background: var(--raised-hi); color: var(--hi); }
+        .seg button:hover { color: var(--hi); }
         .seg button.on {
-            background: var(--signal);
-            color: var(--ink);
-            border-color: var(--signal);
+            background: var(--panel);
+            color: var(--hi);
             font-weight: 600;
+            box-shadow: 0 0 0 1px var(--line-soft) inset;
         }
 
+        /* ── Fields ────────────────────────────────────────────────────────── */
         .field { margin-bottom: 14px; }
         .field label {
             display: block;
-            font-family: var(--font-mono);
-            font-size: 10.5px;
-            text-transform: uppercase;
-            letter-spacing: 0.09em;
-            color: var(--faint);
-            margin-bottom: 8px;
+            font-size: 11.5px;
+            font-weight: 500;
+            color: var(--lo);
+            margin-bottom: 7px;
+            letter-spacing: -0.005em;
         }
-        input[type="text"], input[type="password"] {
+        .field label .hint {
+            color: var(--faint);
+            font-weight: 400;
+        }
+        input[type="text"],
+        input[type="password"],
+        input[type="email"] {
             width: 100%;
             height: 42px;
             padding: 0 14px;
@@ -130,161 +168,294 @@
             border: 1px solid var(--line);
             border-radius: 8px;
             color: var(--hi);
-            font-family: var(--font-mono);
+            font-family: var(--font-sans);
             font-size: 13.5px;
+            letter-spacing: -0.005em;
             outline: none;
-            transition: border-color 120ms, background 120ms;
+            transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
         }
         input:focus {
             border-color: var(--signal);
             background: var(--raised-hi);
+            box-shadow: 0 0 0 3px var(--signal-glow);
         }
         input::placeholder { color: var(--faint); }
 
+        /* Code input — tabular digits, wider tracking */
+        input.code {
+            font-family: var(--font-mono);
+            font-size: 20px;
+            font-weight: 500;
+            letter-spacing: 0.4em;
+            text-align: center;
+            height: 52px;
+            padding: 0 8px;
+        }
+        input.code::placeholder {
+            letter-spacing: 0.4em;
+            font-size: 18px;
+        }
+
+        /* ── Buttons ───────────────────────────────────────────────────────── */
         button.primary {
             width: 100%;
             height: 44px;
-            margin-top: 8px;
+            margin-top: 6px;
             background: var(--signal);
             color: var(--ink);
             border: 0;
             border-radius: 8px;
-            font-family: var(--font-body);
+            font-family: var(--font-sans);
             font-size: 14px;
             font-weight: 600;
             letter-spacing: -0.005em;
             cursor: pointer;
-            transition: background 120ms;
+            transition: background 140ms ease, transform 100ms ease;
         }
-        button.primary:hover { background: var(--signal-hi); }
-        button.primary:disabled { opacity: 0.5; cursor: not-allowed; background: var(--signal); }
+        button.primary:hover:not(:disabled) { background: var(--signal-hi); }
+        button.primary:active:not(:disabled) { transform: translateY(1px); }
+        button.primary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
 
         button.ghost {
-            display: inline-flex; align-items: center; gap: 6px;
+            appearance: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             height: 36px;
             padding: 0 14px;
             background: transparent;
             color: var(--lo);
             border: 1px solid var(--line);
             border-radius: 8px;
-            font-family: var(--font-body);
+            font-family: var(--font-sans);
             font-size: 12.5px;
+            font-weight: 500;
+            letter-spacing: -0.005em;
             cursor: pointer;
-            transition: border-color 120ms, color 120ms, background 120ms;
+            transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
         }
-        button.ghost:hover { border-color: var(--faint); color: var(--hi); background: var(--raised); }
+        button.ghost:hover:not(:disabled) {
+            border-color: var(--faint);
+            color: var(--hi);
+            background: var(--raised);
+        }
+        button.ghost:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .status {
-            margin-top: 20px;
-            padding: 11px 14px;
-            border-radius: 8px;
+        .link-btn {
+            appearance: none;
+            border: 0;
+            background: transparent;
+            color: var(--lo);
+            font-family: var(--font-sans);
             font-size: 12.5px;
-            line-height: 1.5;
-            border: 1px solid transparent;
-            display: none;
+            font-weight: 500;
+            cursor: pointer;
+            padding: 0;
+            transition: color 120ms ease;
         }
-        .status.error {
-            display: block;
-            border-color: rgba(240,129,127,0.32);
-            background: rgba(240,129,127,0.08);
-            color: var(--alert);
-        }
-        .status.info {
-            display: block;
-            border-color: rgba(74,163,236,0.32);
-            background: var(--signal-glow);
-            color: var(--signal);
-        }
-        .status.ok {
-            display: block;
-            border-color: rgba(98,205,160,0.32);
-            background: rgba(98,205,160,0.08);
-            color: var(--ok);
-        }
-        .status.busy::after {
-            content: '';
-            display: inline-block;
-            width: 8px; height: 8px;
-            margin-left: 8px;
-            border-radius: 50%;
-            background: currentColor;
-            opacity: 0.6;
-            animation: pulse 1.4s ease-in-out infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 0.3; transform: scale(1); }
-            50%      { opacity: 0.9; transform: scale(1.2); }
+        .link-btn:hover { color: var(--signal); }
+
+        .row-btns {
+            display: flex;
+            gap: 8px;
+            margin-top: 14px;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        .foot {
-            position: absolute;
-            left: 56px;
-            bottom: 36px;
-            font-family: var(--font-body);
-            font-size: 15px;
-            font-weight: 600;
+        /* ── Toast (status banner) ─────────────────────────────────────────── */
+        .toast {
+            display: none;
+            margin-top: 18px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            overflow: hidden;
+            animation: toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .toast.show { display: block; }
+        .toast-body {
+            display: grid;
+            grid-template-columns: 20px 1fr auto;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 12px 14px;
+        }
+        .toast .icon {
+            width: 18px; height: 18px;
+            margin-top: 1px;
+            flex: none;
+        }
+        .toast .text {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--hi);
             letter-spacing: -0.005em;
         }
-        .foot a {
-            color: var(--signal);
-            text-decoration: underline;
-            text-decoration-thickness: 1px;
-            text-underline-offset: 3px;
-            cursor: pointer;
-            transition: color 120ms;
+        .toast .text .title {
+            font-weight: 600;
+            display: block;
         }
-        .foot a:hover { color: var(--signal-hi); }
+        .toast .text .detail {
+            display: block;
+            color: var(--lo);
+            margin-top: 2px;
+            font-size: 12.5px;
+        }
+        .toast .dismiss {
+            appearance: none;
+            border: 0;
+            background: transparent;
+            color: var(--faint);
+            cursor: pointer;
+            width: 20px; height: 20px;
+            padding: 0;
+            display: grid; place-items: center;
+            border-radius: 4px;
+            transition: color 120ms ease, background 120ms ease;
+        }
+        .toast .dismiss:hover { color: var(--hi); background: rgba(255,255,255,0.04); }
+        .toast .dismiss svg { width: 12px; height: 12px; }
 
+        .toast.error {
+            background: rgba(240, 129, 127, 0.06);
+            border-color: rgba(240, 129, 127, 0.28);
+        }
+        .toast.error .icon { color: var(--alert); }
+        .toast.info {
+            background: var(--signal-glow);
+            border-color: rgba(74, 163, 236, 0.28);
+        }
+        .toast.info .icon { color: var(--signal); }
+        .toast.ok {
+            background: rgba(98, 205, 160, 0.06);
+            border-color: rgba(98, 205, 160, 0.28);
+        }
+        .toast.ok .icon { color: var(--ok); }
+
+        .toast.busy .icon {
+            animation: spin 900ms linear infinite;
+        }
+        @keyframes toast-in {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ── Info grid (welcome screen) ────────────────────────────────────── */
         dl.info {
             display: grid;
-            grid-template-columns: 90px 1fr;
+            grid-template-columns: 96px 1fr;
             gap: 10px 16px;
-            margin-top: 8px;
-            margin-bottom: 24px;
+            margin: 8px 0 22px;
             padding: 18px 20px;
             border: 1px solid var(--line);
-            border-radius: 10px;
+            border-radius: 12px;
             background: var(--raised);
         }
         dl.info dt {
-            font-family: var(--font-mono);
-            font-size: 10.5px;
-            letter-spacing: 0.09em;
-            text-transform: uppercase;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: -0.005em;
             color: var(--faint);
             align-self: center;
         }
         dl.info dd {
             font-family: var(--font-mono);
-            font-size: 13px;
+            font-size: 12.5px;
             color: var(--hi);
             word-break: break-all;
             user-select: text;
         }
-        .welcome-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-        .change-pw { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+
+        .welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .change-pw {
+            margin-top: 22px;
+            padding-top: 18px;
+            border-top: 1px solid var(--line-soft);
+        }
+
+        /* ── Footer ────────────────────────────────────────────────────────── */
+        .foot {
+            position: fixed;
+            left: 0; right: 0;
+            bottom: 24px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--faint);
+            pointer-events: none;
+        }
+        .foot a {
+            color: var(--faint);
+            text-decoration: none;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: color 120ms ease;
+        }
+        .foot a:hover { color: var(--signal); }
+
+        /* ── Verify screen ─────────────────────────────────────────────────── */
+        .code-hint {
+            font-size: 12px;
+            color: var(--faint);
+            text-align: center;
+            margin-top: 12px;
+            margin-bottom: 4px;
+        }
 
         .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-<!-- LOGIN -->
+<!-- ── SVG icon definitions ─────────────────────────────────────────────── -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 9v4"/>
+            <path d="M12 17h.01"/>
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4"/>
+            <path d="M12 8h.01"/>
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="m9 12 2 2 4-4"/>
+        </symbol>
+        <symbol id="i-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18"/>
+            <path d="m6 6 12 12"/>
+        </symbol>
+        <symbol id="i-atlas" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 3 3 20h3.4l1.65-3.4h7.9L17.6 20H21L12 3Zm-2.6 10.6L12 8.2l2.6 5.4H9.4Z"/>
+        </symbol>
+    </defs>
+</svg>
+
+<!-- ── LOGIN ────────────────────────────────────────────────────────────── -->
 <div id="login-app" class="app">
-    <div class="col">
-        <div class="brand-mark">
-            <div class="glyph">A</div>
+    <div class="card">
+        <div class="brand">
+            <div class="mark"><svg style="color:var(--signal)"><use href="#i-atlas"/></svg></div>
             <div class="name">Atlas</div>
         </div>
 
         <h1 id="login-title">Sign in</h1>
         <p class="sub" id="login-sub">Your license is checked against the Atlas server, tied to this machine's hardware, and re-verified every five seconds while the program runs.</p>
 
-        <!-- Auth-mode picker — matches the Console + ImGui examples so users
-             can test every auth path Atlas supports from any of the four. -->
         <div class="seg" role="tablist">
-            <button data-mode="license" class="on">License key</button>
-            <button data-mode="user">User login</button>
+            <button data-mode="license" class="on">License</button>
+            <button data-mode="user">Sign in</button>
             <button data-mode="register">Register</button>
         </div>
 
@@ -295,47 +466,62 @@
                 <input id="license" type="text" placeholder="ATLAS-XXXXX-XXXXX-XXXXX" />
             </div>
 
-            <!-- User mode -->
+            <!-- User sign-in mode -->
             <div class="field hidden" data-mode="user">
                 <label for="uname">Username</label>
-                <input id="uname" type="text" placeholder="your.username" />
+                <input id="uname" type="text" placeholder="your.username" autocomplete="username" />
             </div>
             <div class="field hidden" data-mode="user">
                 <label for="upw">Password</label>
-                <input id="upw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" />
+                <input id="upw" type="password" placeholder="••••••••" autocomplete="current-password" />
             </div>
 
             <!-- Register mode -->
             <div class="field hidden" data-mode="register">
-                <label for="reglic">License key to bind</label>
-                <input id="reglic" type="text" placeholder="ATLAS-XXXXX-XXXXX-XXXXX" />
+                <label for="reguser">Username</label>
+                <input id="reguser" type="text" placeholder="your.username" autocomplete="username" />
             </div>
             <div class="field hidden" data-mode="register">
-                <label for="reguser">Pick a username (3-80 chars)</label>
-                <input id="reguser" type="text" placeholder="your.username" />
+                <label for="regpw">Password</label>
+                <input id="regpw" type="password" placeholder="••••••••" autocomplete="new-password" />
             </div>
             <div class="field hidden" data-mode="register">
-                <label for="regpw">Pick a password (6-128 chars)</label>
-                <input id="regpw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" />
+                <label for="regemail">Email <span class="hint">· optional, unlocks password reset</span></label>
+                <input id="regemail" type="email" placeholder="you@example.com" autocomplete="email" />
             </div>
 
             <button id="submit" class="primary" type="submit">Authenticate</button>
         </form>
 
-        <div id="status" class="status"></div>
+        <!-- Verify screen — one 8-digit code input, same shape for sign-in
+             verify + register confirm; kind is decided by the main process. -->
+        <form id="verify-form" class="hidden" autocomplete="off" spellcheck="false">
+            <div class="field">
+                <label for="verify-code">Verification code</label>
+                <input id="verify-code" class="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="········" />
+                <p class="code-hint">Enter the 8-digit code we emailed you.</p>
+            </div>
+            <button id="verify-submit" class="primary" type="submit" disabled>Verify</button>
+            <div class="row-btns">
+                <button id="verify-resend" class="link-btn" type="button">Resend code</button>
+                <button id="verify-cancel" class="link-btn" type="button">Cancel</button>
+            </div>
+        </form>
+
+        <div id="status" class="toast" role="status" aria-live="polite"></div>
     </div>
 </div>
 
-<!-- WELCOME -->
+<!-- ── WELCOME ──────────────────────────────────────────────────────────── -->
 <div id="welcome-app" class="app hidden">
-    <div class="col">
-        <div class="brand-mark">
-            <div class="glyph">A</div>
+    <div class="card">
+        <div class="brand">
+            <div class="mark"><svg style="color:var(--signal)"><use href="#i-atlas"/></svg></div>
             <div class="name">Atlas</div>
         </div>
 
         <h1>Signed in</h1>
-        <p class="sub">Your session is holding. The Atlas heartbeat keeps re-verifying it every five seconds; you don't need to call anything to keep it alive.</p>
+        <p class="sub">Your session is holding. The Atlas heartbeat re-verifies it every five seconds; nothing else to call.</p>
 
         <dl class="info" id="welcome-info"></dl>
 
@@ -348,14 +534,14 @@
         <div id="change-pw" class="change-pw hidden">
             <div class="field">
                 <label for="old-pw">Current password</label>
-                <input id="old-pw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;" />
+                <input id="old-pw" type="password" placeholder="••••••••" autocomplete="current-password" />
             </div>
             <div class="field">
-                <label for="new-pw">New password (6-128 chars)</label>
-                <input id="new-pw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;" />
+                <label for="new-pw">New password</label>
+                <input id="new-pw" type="password" placeholder="••••••••" autocomplete="new-password" />
             </div>
             <button id="submit-change-pw" class="primary" type="button">Update password</button>
-            <div id="pw-status" class="status"></div>
+            <div id="pw-status" class="toast" role="status" aria-live="polite"></div>
         </div>
     </div>
 </div>
@@ -368,22 +554,76 @@
     const welcomeApp  = $('welcome-app');
     const loginForm   = $('login-form');
     const submitBtn   = $('submit');
-    const statusDiv   = $('status');
+    const statusEl    = $('status');
     const welcomeInfo = $('welcome-info');
 
     let currentMode = 'license';
+    let pendingVerify = null;     // 'signin' | 'register' | null
+    let inFlight = false;
 
-    // Diagnostic: any preload/CSP breakage shows up in DevTools immediately.
-    console.log('[atlas-example] renderer loaded, window.atlas is:', typeof window.atlas);
-    if (window.atlas) {
-        console.log('[atlas-example] methods:', Object.keys(window.atlas));
-    } else {
+    if (!window.atlas) {
         console.error('[atlas-example] preload did not expose window.atlas!');
     }
 
-    function setStatus(el, kind, text) {
-        el.className = 'status ' + (kind || '');
-        el.textContent = text || '';
+    // ── Toast helpers ─────────────────────────────────────────────────────
+    // Two-line banner: title + optional detail. tone ∈ 'error' | 'info' | 'ok'.
+    // Pass `busy: true` to spin the icon while an async call is in flight.
+    function setToast(el, opts) {
+        if (!opts) { el.className = 'toast'; el.innerHTML = ''; return; }
+        const { tone = 'info', title, detail, busy = false, dismissable = false } = opts;
+        const iconId = busy ? 'i-spinner'
+                     : tone === 'error' ? 'i-alert'
+                     : tone === 'ok'    ? 'i-check'
+                                        : 'i-info';
+        const detailHtml = detail ? `<span class="detail">${escapeHtml(detail)}</span>` : '';
+        const dismissHtml = dismissable
+            ? `<button class="dismiss" type="button" aria-label="Dismiss"><svg><use href="#i-close"/></svg></button>`
+            : `<span></span>`;
+        el.className = `toast show ${tone}${busy ? ' busy' : ''}`;
+        el.innerHTML = `
+            <div class="toast-body">
+                <svg class="icon"><use href="#${iconId}"/></svg>
+                <div class="text">
+                    <span class="title">${escapeHtml(title || '')}</span>
+                    ${detailHtml}
+                </div>
+                ${dismissHtml}
+            </div>`;
+        if (dismissable) {
+            el.querySelector('.dismiss').addEventListener('click', () => clearToast(el));
+        }
+    }
+    function clearToast(el) { el.className = 'toast'; el.innerHTML = ''; }
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+    }
+
+    // Server error strings often come as ONE line (e.g. "The application files
+    // have been modified. Please reinstall from the official source."). Split
+    // on the first sentence-ending punctuation so the toast has a scannable
+    // headline + a detail. If the string is a single short phrase, we treat
+    // the whole thing as the title and leave detail empty.
+    function splitMessage(msg) {
+        const m = String(msg || '').trim();
+        if (!m) return { title: 'Something went wrong', detail: '' };
+        const dot = m.search(/[.!?](\s|$)/);
+        if (dot > 0 && dot < m.length - 1) {
+            return { title: m.slice(0, dot + 1).trim(), detail: m.slice(dot + 1).trim() };
+        }
+        return { title: m, detail: '' };
+    }
+
+    // ── State + button helpers ────────────────────────────────────────────
+    function setInFlight(v) {
+        inFlight = v;
+        submitBtn.disabled = v;
+        $('verify-submit').disabled = v || !isVerifyReady();
+        $('verify-resend').disabled = v;
+    }
+    function isVerifyReady() {
+        return /^\d{8}$/.test(($('verify-code').value || '').trim());
     }
 
     function maskLicense(k) {
@@ -391,7 +631,7 @@
         return k.slice(0, 6) + '-*****-*****';
     }
 
-    // Segmented control — click to switch mode, show/hide fields, update copy.
+    // ── Mode picker ───────────────────────────────────────────────────────
     function applyMode(mode) {
         currentMode = mode;
         document.querySelectorAll('.seg button').forEach((b) => {
@@ -400,45 +640,76 @@
         document.querySelectorAll('.field[data-mode]').forEach((f) => {
             f.classList.toggle('hidden', f.dataset.mode !== mode);
         });
-        const title = mode === 'register' ? 'Create an account' : 'Sign in';
-        const sub = mode === 'register'
-            ? "Bind a license key to a new username/password. On success you'll be signed in as the new account automatically."
-            : mode === 'user'
-            ? 'Sign in with the username and password you registered earlier (or that was provisioned in the dashboard).'
-            : 'Your license is checked against the Atlas server, tied to this machine\'s hardware, and re-verified every five seconds while the program runs.';
-        $('login-title').textContent = title;
-        $('login-sub').textContent = sub;
-        submitBtn.textContent = mode === 'register' ? 'Register & sign in'
-            : mode === 'user' ? 'Sign in' : 'Authenticate';
-        setStatus(statusDiv, '', '');
+        $('login-title').textContent = mode === 'register' ? 'Create an account' : 'Sign in';
+        $('login-sub').textContent =
+            mode === 'register' ? 'Create a username and password. Supply an email to receive a confirmation code and unlock password reset.' :
+            mode === 'user'     ? 'Sign in with your username and password. From a new device we’ll email you an 8-digit code.' :
+                                  'Your license is checked against the Atlas server, tied to this machine’s hardware, and re-verified every five seconds while the program runs.';
+        submitBtn.textContent =
+            mode === 'register' ? 'Create account' :
+            mode === 'user'     ? 'Sign in' :
+                                  'Authenticate';
+        clearToast(statusEl);
     }
     document.querySelectorAll('.seg button').forEach((b) => {
         b.addEventListener('click', () => applyMode(b.dataset.mode));
     });
 
+    // ── Screen transitions ────────────────────────────────────────────────
     function showLogin() {
         loginApp.classList.remove('hidden');
         welcomeApp.classList.add('hidden');
-        // Reset every input so switching users doesn't leak stale values.
-        ['license', 'uname', 'upw', 'reglic', 'reguser', 'regpw', 'old-pw', 'new-pw'].forEach((id) => { $(id).value = ''; });
-        submitBtn.disabled = false;
-        setStatus(statusDiv, '', '');
+        ['license', 'uname', 'upw', 'reguser', 'regpw', 'regemail', 'verify-code', 'old-pw', 'new-pw']
+            .forEach((id) => { $(id).value = ''; });
+        setInFlight(false);
+        clearToast(statusEl);
         $('change-pw').classList.add('hidden');
-        setStatus($('pw-status'), '', '');
+        clearToast($('pw-status'));
+        showCredentials();
         applyMode('license');
+        setTimeout(() => $('license').focus(), 20);
     }
 
+    function showCredentials() {
+        pendingVerify = null;
+        loginForm.classList.remove('hidden');
+        document.querySelector('.seg').classList.remove('hidden');
+        $('verify-form').classList.add('hidden');
+    }
+
+    function showVerify(kind) {
+        pendingVerify = kind;
+        loginForm.classList.add('hidden');
+        document.querySelector('.seg').classList.add('hidden');
+        $('verify-form').classList.remove('hidden');
+        $('login-title').textContent = kind === 'register' ? 'Confirm your email' : 'Verify your sign-in';
+        $('login-sub').textContent = kind === 'register'
+            ? 'We emailed an 8-digit confirmation code to the address you registered with. Enter it to confirm the account and finish signing in.'
+            : 'We emailed an 8-digit code to the address on file for this account. Enter it to complete the sign-in.';
+        $('verify-code').value = '';
+        setInFlight(false);
+        setTimeout(() => $('verify-code').focus(), 20);
+    }
+
+    // Filter to digits + enable Verify only at 8 digits. Paste-friendly.
+    $('verify-code').addEventListener('input', () => {
+        const v = $('verify-code').value.replace(/\D+/g, '').slice(0, 8);
+        if (v !== $('verify-code').value) $('verify-code').value = v;
+        $('verify-submit').disabled = inFlight || !isVerifyReady();
+    });
+
+    // ── Welcome ───────────────────────────────────────────────────────────
     function renderWelcome(data) {
         welcomeInfo.innerHTML = '';
         const rows = [];
         if (data.username) rows.push(['Username', data.username]);
         rows.push(
-            ['License',   data.license ? maskLicense(data.license) : '-'],
-            ['Level',     String(data.level ?? 0)],
-            ['Expiry',    data.expiry     || '-'],
-            ['HWID',      data.hwid       || '-'],
-            ['IP',        data.ip         || '-'],
-            ['Note',      data.note       || '-'],
+            ['License', data.license ? maskLicense(data.license) : '—'],
+            ['Level',   String(data.level ?? 0)],
+            ['Expiry',  data.expiry     || '—'],
+            ['HWID',    data.hwid       || '—'],
+            ['IP',      data.ip         || '—'],
+            ['Note',    data.note       || '—'],
         );
         for (const [k, v] of rows) {
             const dt = document.createElement('dt'); dt.textContent = k;
@@ -446,40 +717,123 @@
             welcomeInfo.appendChild(dt);
             welcomeInfo.appendChild(dd);
         }
-        // ChangePassword affordance — only for password-mode sessions.
         $('toggle-change-pw').classList.toggle('hidden', !data.username);
         loginApp.classList.add('hidden');
         welcomeApp.classList.remove('hidden');
     }
 
+    // ── Login submit ──────────────────────────────────────────────────────
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!window.atlas || typeof window.atlas.login !== 'function') {
-            setStatus(statusDiv, 'error', 'IPC bridge is not available. Restart the app.');
+        if (inFlight) return;
+        if (!window.atlas) {
+            setToast(statusEl, { tone: 'error', title: 'IPC bridge unavailable', detail: 'Restart the app.' });
             return;
         }
-        let payload = { mode: currentMode };
+        const payload = { mode: currentMode };
         if (currentMode === 'license')  payload.license = $('license').value.trim();
-        if (currentMode === 'user')     { payload.username = $('uname').value.trim(); payload.password = $('upw').value; }
-        if (currentMode === 'register') { payload.license = $('reglic').value.trim(); payload.username = $('reguser').value.trim(); payload.password = $('regpw').value; }
+        if (currentMode === 'user')     { payload.username = $('uname').value.trim();    payload.password = $('upw').value; }
+        if (currentMode === 'register') { payload.username = $('reguser').value.trim(); payload.password = $('regpw').value; payload.email = $('regemail').value.trim(); }
 
-        submitBtn.disabled = true;
-        setStatus(statusDiv, 'info busy',
-            currentMode === 'register' ? 'Registering...' : 'Contacting server...');
+        setInFlight(true);
+        setToast(statusEl, { tone: 'info', busy: true, title: currentMode === 'register' ? 'Creating account…' : 'Contacting Atlas…' });
         try {
             const r = await window.atlas.login(payload);
-            if (r && r.ok) {
-                renderWelcome(r);
-            } else {
-                setStatus(statusDiv, 'error', (r && r.error) || 'Authentication rejected.');
-                submitBtn.disabled = false;
+            if (r && r.ok) { renderWelcome(r); return; }
+            if (r && r.needsVerify) {
+                showVerify(r.needsVerify);
+                clearToast(statusEl);
+                return;
             }
+            // No-email register success: account is created, no confirm code
+            // needed. Same "ready to sign in" pop-back as the emailed path.
+            if (r && r.registered) {
+                showCredentials();
+                applyMode('user');
+                if (r.username) $('uname').value = r.username;
+                setTimeout(() => $('upw').focus(), 20);
+                setToast(statusEl, {
+                    tone: 'ok',
+                    title: `Account '${r.username || 'created'}' is ready.`,
+                    detail: 'Sign in when you like.',
+                    dismissable: true,
+                });
+                return;
+            }
+            const { title, detail } = splitMessage(r && r.error);
+            setToast(statusEl, { tone: 'error', title, detail, dismissable: true });
         } catch (err) {
-            setStatus(statusDiv, 'error', 'IPC error: ' + (err && err.message || String(err)));
-            submitBtn.disabled = false;
+            setToast(statusEl, { tone: 'error', title: 'IPC error', detail: err && err.message || String(err), dismissable: true });
+        } finally {
+            setInFlight(false);
+            $('upw').value = '';
+            $('regpw').value = '';
         }
     });
 
+    // ── Verify submit ─────────────────────────────────────────────────────
+    $('verify-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (inFlight) return;
+        const code = ($('verify-code').value || '').trim();
+        if (!/^\d{8}$/.test(code)) {
+            setToast(statusEl, { tone: 'error', title: 'Enter the 8-digit code', dismissable: true });
+            return;
+        }
+        setInFlight(true);
+        setToast(statusEl, { tone: 'info', busy: true, title: 'Verifying…' });
+        try {
+            const r = await window.atlas.verifySubmit({ code, kind: pendingVerify || 'signin' });
+            if (r && r.ok) { renderWelcome(r); return; }
+            // Register flow finished: account created + email confirmed. We
+            // don't auto-sign-in - the user picks when. Pop back to Sign in
+            // with the username prefilled and a green success banner.
+            if (r && r.registered) {
+                showCredentials();
+                applyMode('user');
+                if (r.username) $('uname').value = r.username;
+                setTimeout(() => $('upw').focus(), 20);
+                setToast(statusEl, {
+                    tone: 'ok',
+                    title: `Account '${r.username || 'created'}' is ready.`,
+                    detail: 'Sign in when you like.',
+                    dismissable: true,
+                });
+                return;
+            }
+            const { title, detail } = splitMessage(r && r.error);
+            setToast(statusEl, { tone: 'error', title, detail, dismissable: true });
+            $('verify-code').value = '';
+            $('verify-code').focus();
+        } catch (err) {
+            setToast(statusEl, { tone: 'error', title: 'IPC error', detail: err && err.message || String(err), dismissable: true });
+        } finally {
+            setInFlight(false);
+        }
+    });
+
+    $('verify-resend').addEventListener('click', async () => {
+        if (inFlight) return;
+        setInFlight(true);
+        setToast(statusEl, { tone: 'info', busy: true, title: 'Requesting a fresh code…' });
+        try {
+            const r = await window.atlas.verifyResend();
+            if (r && r.ok) setToast(statusEl, { tone: 'info',  title: 'A new code has been emailed.', dismissable: true });
+            else           setToast(statusEl, { tone: 'error', ...splitMessage(r && r.error), dismissable: true });
+        } catch (err) {
+            setToast(statusEl, { tone: 'error', title: 'IPC error', detail: err.message, dismissable: true });
+        } finally {
+            setInFlight(false);
+        }
+    });
+
+    $('verify-cancel').addEventListener('click', async () => {
+        try { await window.atlas.verifyCancel(); } catch { /* best-effort */ }
+        showCredentials();
+        applyMode(currentMode);
+    });
+
+    // ── Welcome-screen actions ────────────────────────────────────────────
     $('signout').addEventListener('click', async () => {
         try { await window.atlas.signout(); } catch {}
         showLogin();
@@ -489,48 +843,46 @@
         try {
             const s = await window.atlas.status();
             if (s.authenticated && !s.banned) {
-                setStatus(statusDiv, 'info', 'Session is holding.');
-                setTimeout(() => setStatus(statusDiv, '', ''), 2500);
+                setToast(statusEl, { tone: 'ok', title: 'Session is holding.', dismissable: true });
+                setTimeout(() => clearToast(statusEl), 2400);
             } else {
-                setStatus(statusDiv, 'error', s.banned ? 'This session has been banned.' : 'Session is no longer valid.');
-                setTimeout(showLogin, 1800);
+                setToast(statusEl, { tone: 'error', title: s.banned ? 'This session has been banned.' : 'Session is no longer valid.', dismissable: true });
+                setTimeout(showLogin, 1600);
             }
         } catch (err) {
-            setStatus(statusDiv, 'error', 'Status check failed: ' + err.message);
+            setToast(statusEl, { tone: 'error', title: 'Status check failed', detail: err.message, dismissable: true });
         }
     });
 
-    // Change password — toggles the inline form; submits via the change-password IPC.
     $('toggle-change-pw').addEventListener('click', () => {
         const box = $('change-pw');
         box.classList.toggle('hidden');
         $('toggle-change-pw').textContent = box.classList.contains('hidden') ? 'Change password' : 'Cancel change';
-        setStatus($('pw-status'), '', '');
+        clearToast($('pw-status'));
     });
     $('submit-change-pw').addEventListener('click', async () => {
         const oldp = $('old-pw').value;
         const newp = $('new-pw').value;
-        if (!oldp || !newp) { setStatus($('pw-status'), 'error', 'Fill both fields.'); return; }
+        if (!oldp || !newp) { setToast($('pw-status'), { tone: 'error', title: 'Fill both fields.' }); return; }
         try {
             const r = await window.atlas.changePassword({ oldPassword: oldp, newPassword: newp });
             if (r && r.ok) {
-                setStatus($('pw-status'), 'ok', 'Password updated. Next login uses the new password.');
+                setToast($('pw-status'), { tone: 'ok', title: 'Password updated.', detail: 'Use it on your next sign-in.', dismissable: true });
                 $('old-pw').value = ''; $('new-pw').value = '';
             } else {
-                setStatus($('pw-status'), 'error', (r && r.error) || 'Password change failed.');
+                setToast($('pw-status'), { tone: 'error', ...splitMessage(r && r.error), dismissable: true });
             }
         } catch (err) {
-            setStatus($('pw-status'), 'error', 'IPC error: ' + err.message);
+            setToast($('pw-status'), { tone: 'error', title: 'IPC error', detail: err.message, dismissable: true });
         }
     });
 
-    // Website link — routes through the main process via shell.openExternal.
     $('site-link').addEventListener('click', async () => {
         try { await window.atlas.openUrl('https://atlassecurity.site'); }
         catch (e) { console.error('[atlas-example] openUrl failed:', e); }
     });
 
-    $('license').focus();
+    setTimeout(() => $('license').focus(), 60);
 </script>
 </body>
 </html>
