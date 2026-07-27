@@ -10,11 +10,11 @@ A real Electron desktop app: windowed login form → welcome screen, cold-steel 
 
 ```
 Electron Example/
-├── README.md                            you are here
-├── Atlas Auth Electron Example.js       main-process entry (Node runtime)
-├── preload.js                           the IPC bridge — every renderer call is listed here
-├── renderer.html                        the UI (sandboxed Chromium page)
-└── package.json                         Electron-specific manifest (electron, koffi)
+├-- README.md                            you are here
+├-- Atlas Auth Electron Example.js       main-process entry (Node runtime)
+├-- preload.js                           the IPC bridge — every renderer call is listed here
+├-- renderer.html                        the UI (sandboxed Chromium page)
+└-- package.json                         Electron-specific manifest (electron, koffi)
 ```
 
 Requires the SDK sitting at [`../Atlas SDK/src`](../Atlas%20SDK/src/) and `Atlas.dll` at [`../Atlas SDK/Atlas.dll`](../Atlas%20SDK/Atlas.dll) — both are in this repo.

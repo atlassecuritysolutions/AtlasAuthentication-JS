@@ -48,25 +48,25 @@ Same stack as the C++ SDK, called through JavaScript.
 
 ```
 JS Integration/
-├── package.json                            top-level manifest — `npm install` here
-├── Atlas SDK/
-│   ├── Atlas.dll                             the DLL that runs the protection stack
-│   ├── Atlas.dll.sig                         Ed25519 signature for the auto-updater
-│   ├── Atlas.lib / Atlas.exp                 MSVC import library (unused at runtime)
-│   └── src/
-│       ├── index.js                          the SDK — mirrors the C++ namespace 1:1
-│       ├── index.d.ts                        TypeScript typings
-│       └── updater.js                        opt-in DLL auto-updater
-├── Console Example/
-│   └── Atlas Auth Example.js                 same flow as the C++ Console example
-├── Electron Example/
-│   ├── Atlas Auth Electron Example.js        main-process entry point
-│   ├── preload.js                            narrow IPC surface
-│   ├── renderer.html                         the sandboxed UI
-│   └── package.json                          Electron-specific manifest
-└── dev-tools/
-    ├── test.js                               smoke suite for the binding
-    └── manage_autoupdate.js                  CLI for the auto-updater state
+├-- package.json                            top-level manifest — `npm install` here
+├-- Atlas SDK/
+│   ├-- Atlas.dll                             the DLL that runs the protection stack
+│   ├-- Atlas.dll.sig                         Ed25519 signature for the auto-updater
+│   ├-- Atlas.lib / Atlas.exp                 MSVC import library (unused at runtime)
+│   └-- src/
+│       ├-- index.js                          the SDK — mirrors the C++ namespace 1:1
+│       ├-- index.d.ts                        TypeScript typings
+│       └-- updater.js                        opt-in DLL auto-updater
+├-- Console Example/
+│   └-- Atlas Auth Example.js                 same flow as the C++ Console example
+├-- Electron Example/
+│   ├-- Atlas Auth Electron Example.js        main-process entry point
+│   ├-- preload.js                            narrow IPC surface
+│   ├-- renderer.html                         the sandboxed UI
+│   └-- package.json                          Electron-specific manifest
+└-- dev-tools/
+    ├-- test.js                               smoke suite for the binding
+    └-- manage_autoupdate.js                  CLI for the auto-updater state
 ```
 
 `Atlas.dll` is prebuilt and committed. You don't rebuild the SDK to use it.
