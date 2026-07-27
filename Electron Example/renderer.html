@@ -61,7 +61,7 @@
             overflow-x: hidden;
         }
 
-        /* ── Layout ────────────────────────────────────────────────────────── */
+        /* -- Layout ---------------------------------------------------------- */
         .app {
             min-height: 100vh;
             display: grid;
@@ -75,7 +75,7 @@
             flex-direction: column;
         }
 
-        /* ── Brand ─────────────────────────────────────────────────────────── */
+        /* -- Brand ----------------------------------------------------------- */
         .brand {
             display: flex;
             align-items: center;
@@ -96,7 +96,7 @@
             letter-spacing: -0.015em;
         }
 
-        /* ── Type ──────────────────────────────────────────────────────────── */
+        /* -- Type ------------------------------------------------------------ */
         h1 {
             font-size: 26px;
             font-weight: 600;
@@ -111,7 +111,7 @@
             margin-bottom: 28px;
         }
 
-        /* ── Segmented (mode picker) ───────────────────────────────────────── */
+        /* -- Segmented (mode picker) ----------------------------------------- */
         .seg {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
@@ -144,7 +144,7 @@
             box-shadow: 0 0 0 1px var(--line-soft) inset;
         }
 
-        /* ── Fields ────────────────────────────────────────────────────────── */
+        /* -- Fields ---------------------------------------------------------- */
         .field { margin-bottom: 14px; }
         .field label {
             display: block;
@@ -196,7 +196,7 @@
             font-size: 18px;
         }
 
-        /* ── Buttons ───────────────────────────────────────────────────────── */
+        /* -- Buttons --------------------------------------------------------- */
         button.primary {
             width: 100%;
             height: 44px;
@@ -266,7 +266,7 @@
             align-items: center;
         }
 
-        /* ── Toast (status banner) ─────────────────────────────────────────── */
+        /* -- Toast (status banner) ------------------------------------------- */
         .toast {
             display: none;
             margin-top: 18px;
@@ -346,7 +346,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* ── Info grid (welcome screen) ────────────────────────────────────── */
+        /* -- Info grid (welcome screen) -------------------------------------- */
         dl.info {
             display: grid;
             grid-template-columns: 96px 1fr;
@@ -379,7 +379,7 @@
             border-top: 1px solid var(--line-soft);
         }
 
-        /* ── Footer ────────────────────────────────────────────────────────── */
+        /* -- Footer ---------------------------------------------------------- */
         .foot {
             position: fixed;
             left: 0; right: 0;
@@ -398,7 +398,7 @@
         }
         .foot a:hover { color: var(--signal); }
 
-        /* ── Verify screen ─────────────────────────────────────────────────── */
+        /* -- Verify screen --------------------------------------------------- */
         .code-hint {
             font-size: 12px;
             color: var(--faint);
@@ -412,7 +412,7 @@
 </head>
 <body>
 
-<!-- ── SVG icon definitions ─────────────────────────────────────────────── -->
+<!-- -- SVG icon definitions ----------------------------------------------- -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
         <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -442,7 +442,7 @@
     </defs>
 </svg>
 
-<!-- ── LOGIN ────────────────────────────────────────────────────────────── -->
+<!-- -- LOGIN -------------------------------------------------------------- -->
 <div id="login-app" class="app">
     <div class="card">
         <div class="brand">
@@ -512,7 +512,7 @@
     </div>
 </div>
 
-<!-- ── WELCOME ──────────────────────────────────────────────────────────── -->
+<!-- -- WELCOME ------------------------------------------------------------ -->
 <div id="welcome-app" class="app hidden">
     <div class="card">
         <div class="brand">
@@ -565,7 +565,7 @@
         console.error('[atlas-example] preload did not expose window.atlas!');
     }
 
-    // ── Toast helpers ─────────────────────────────────────────────────────
+    // -- Toast helpers -----------------------------------------------------
     // Two-line banner: title + optional detail. tone ∈ 'error' | 'info' | 'ok'.
     // Pass `busy: true` to spin the icon while an async call is in flight.
     function setToast(el, opts) {
@@ -615,7 +615,7 @@
         return { title: m, detail: '' };
     }
 
-    // ── State + button helpers ────────────────────────────────────────────
+    // -- State + button helpers --------------------------------------------
     function setInFlight(v) {
         inFlight = v;
         submitBtn.disabled = v;
@@ -631,7 +631,7 @@
         return k.slice(0, 6) + '-*****-*****';
     }
 
-    // ── Mode picker ───────────────────────────────────────────────────────
+    // -- Mode picker -------------------------------------------------------
     function applyMode(mode) {
         currentMode = mode;
         document.querySelectorAll('.seg button').forEach((b) => {
@@ -655,7 +655,7 @@
         b.addEventListener('click', () => applyMode(b.dataset.mode));
     });
 
-    // ── Screen transitions ────────────────────────────────────────────────
+    // -- Screen transitions ------------------------------------------------
     function showLogin() {
         loginApp.classList.remove('hidden');
         welcomeApp.classList.add('hidden');
@@ -698,7 +698,7 @@
         $('verify-submit').disabled = inFlight || !isVerifyReady();
     });
 
-    // ── Welcome ───────────────────────────────────────────────────────────
+    // -- Welcome -----------------------------------------------------------
     function renderWelcome(data) {
         welcomeInfo.innerHTML = '';
         const rows = [];
@@ -722,7 +722,7 @@
         welcomeApp.classList.remove('hidden');
     }
 
-    // ── Login submit ──────────────────────────────────────────────────────
+    // -- Login submit ------------------------------------------------------
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         if (inFlight) return;
@@ -771,7 +771,7 @@
         }
     });
 
-    // ── Verify submit ─────────────────────────────────────────────────────
+    // -- Verify submit -----------------------------------------------------
     $('verify-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         if (inFlight) return;
@@ -833,7 +833,7 @@
         applyMode(currentMode);
     });
 
-    // ── Welcome-screen actions ────────────────────────────────────────────
+    // -- Welcome-screen actions --------------------------------------------
     $('signout').addEventListener('click', async () => {
         try { await window.atlas.signout(); } catch {}
         showLogin();

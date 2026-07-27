@@ -77,7 +77,7 @@ export function setAppHashPath(filePath: string): true;
 /** Read the apphash that will be sent to the server on the next request. */
 export function getResolvedAppHash(): string;
 
-// ── Auto-update (opt-in) ────────────────────────────────────────────────────
+// -- Auto-update (opt-in) ----------------------------------------------------
 
 export interface EnableAutoUpdateOptions {
     /**
@@ -201,7 +201,7 @@ export const network: {
     ping(): number;
 };
 
-// ─── Account-mode API ──────────────────────────────────────────────────────
+// --- Account-mode API ------------------------------------------------------
 
 /**
  * Result of `account.login()`. On `needs_verify`, prompt the user for the

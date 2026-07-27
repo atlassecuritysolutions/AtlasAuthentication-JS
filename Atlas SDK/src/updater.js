@@ -33,7 +33,7 @@ const os      = require('os');
 const crypto  = require('crypto');
 const https   = require('https');
 
-// ── constants (parity with AtlasUpdater.h) ─────────────────────────────────
+// -- constants (parity with AtlasUpdater.h) ---------------------------------
 // Points at AtlasAuthentication-JS (the customer-facing JS SDK repo).
 // C++ updater points at AtlasAuthentication-CPP — separate repos, each
 // carries only what its language's users need. See ../docs/AutoUpdate.md.
@@ -64,7 +64,7 @@ MCowBQYDK2VwAyEAT+/ofltN8AY8/eBTS/8hny31ps226VR3NCVFfvpm2D0=
 -----END PUBLIC KEY-----
 `.trim();
 
-// ── environment gates ───────────────────────────────────────────────────────
+// -- environment gates -------------------------------------------------------
 
 // True if this process is a shipped Electron app (packaged .asar).
 // Never run the updater under those conditions — end users don't run
@@ -106,7 +106,7 @@ function isJsDevMachine() {
     return false;
 }
 
-// ── cache dir + IO helpers ──────────────────────────────────────────────────
+// -- cache dir + IO helpers --------------------------------------------------
 
 function getCacheDir() {
     // %LOCALAPPDATA%\AtlasAuth — same as C++ side.
@@ -143,7 +143,7 @@ function logLine(message) {
     } catch { /* silence — logging must never crash startup */ }
 }
 
-// ── HTTP helpers ────────────────────────────────────────────────────────────
+// -- HTTP helpers ------------------------------------------------------------
 
 // Minimal wrapper over https.get that follows redirects (raw.githubusercontent
 // serves 302s through CDN edges), respects timeout, and returns a Buffer.
@@ -177,7 +177,7 @@ function httpGet(url, timeoutMs = 10000, maxRedirects = 5) {
     });
 }
 
-// ── signature verification ─────────────────────────────────────────────────
+// -- signature verification -------------------------------------------------
 
 // Verify an Ed25519 signature over the DLL bytes against the pinned pubkey.
 // Refuses if:
@@ -198,7 +198,7 @@ function verifyDllSignature(dllBytes, sigBytes) {
     }
 }
 
-// ── public API ──────────────────────────────────────────────────────────────
+// -- public API --------------------------------------------------------------
 
 // Opt-in gate. Default is OFF. Dev must explicitly enable + acknowledge
 // the security implication. Modeled on the C++ dialog's "Got it" flow
@@ -255,7 +255,7 @@ function isOptedIn() {
     return fileExists(path.join(dir, INSTALLED_FLAG));
 }
 
-// ── the update flow ─────────────────────────────────────────────────────────
+// -- the update flow ---------------------------------------------------------
 
 // Runs one round of the "is the local DLL current" check. Called from
 // atlas.startup() if the user has opted in. Never throws — returns a

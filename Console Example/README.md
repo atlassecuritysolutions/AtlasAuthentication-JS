@@ -10,8 +10,8 @@ Minimal Atlas integration for Node. Prompts for a license, authenticates against
 
 ```
 Console Example/
-├── README.md                    you are here
-└── Atlas Auth Example.js        the whole example — ~60 lines
+├-- README.md                    you are here
+└-- Atlas Auth Example.js        the whole example — ~60 lines
 ```
 
 Requires the SDK sitting at [`../Atlas SDK/src`](../Atlas%20SDK/src/) and `Atlas.dll` at [`../Atlas SDK/Atlas.dll`](../Atlas%20SDK/Atlas.dll) — both are in this repo.

@@ -27,7 +27,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const updater = require('./updater');
 
-// ── platform gate ───────────────────────────────────────────────────────────
+// -- platform gate -----------------------------------------------------------
 // Atlas is Windows x64. Fail loudly at load-time rather than at first call.
 if (process.platform !== 'win32') {
     throw new Error(
@@ -53,7 +53,7 @@ catch (e) {
     );
 }
 
-// ── DLL location resolution ─────────────────────────────────────────────────
+// -- DLL location resolution -------------------------------------------------
 // Order of preference:
 //   1. Explicit path via ATLAS_DLL_PATH env var (used in dev + tests)
 //   2. Path passed to `init({ dllPath: '...' })`
@@ -67,7 +67,7 @@ function resolveDllPath(explicit) {
     return packaged;
 }
 
-// ── version contract ────────────────────────────────────────────────────────
+// -- version contract --------------------------------------------------------
 // This binding was written against DLL surface v2.x. It refuses to run
 // against a different major (breaking export ABI). Within a major we're
 // add-only, so a newer DLL is fine but an older one may be missing
@@ -82,7 +82,7 @@ function parseSemver(s) {
     return { major: +m[1], minor: +(m[2] || 0), patch: +(m[3] || 0) };
 }
 
-// ── status codes (mirror AtlasExports.cpp enum) ─────────────────────────────
+// -- status codes (mirror AtlasExports.cpp enum) -----------------------------
 const Status = Object.freeze({
     OK: 0,
     NOT_STARTED: 1,
@@ -117,7 +117,7 @@ class AtlasError extends Error {
     }
 }
 
-// ── DLL binding state ───────────────────────────────────────────────────────
+// -- DLL binding state -------------------------------------------------------
 let lib = null;                 // koffi library handle
 let fns = null;                 // resolved function handles
 let didStartup = false;         // startup() called at least once (successfully)
@@ -231,7 +231,7 @@ function ensureBound(options) {
     }
 }
 
-// ── size-query buffer pattern helper ────────────────────────────────────────
+// -- size-query buffer pattern helper ----------------------------------------
 // The DLL uses the standard C pattern: pass NULL/0 to get bytes-needed, then
 // allocate and call again. Wrapping this once here means the entire API below
 // is one-liners.
@@ -252,7 +252,7 @@ function readString(fn) {
     return buf.slice(0, written - 1).toString('utf8');
 }
 
-// ── input validation helpers ────────────────────────────────────────────────
+// -- input validation helpers ------------------------------------------------
 // Repeated shape across the API — extract for consistency + a single place
 // to change if we start accepting more permissive input.
 function requireNonEmptyString(name, value) {
@@ -282,7 +282,7 @@ function requireInt(name, value, { min, max } = {}) {
     }
 }
 
-// ── public API ──────────────────────────────────────────────────────────────
+// -- public API --------------------------------------------------------------
 
 /**
  * Initialize the binding with explicit options. Optional — call before
@@ -321,7 +321,7 @@ function setApiKey(apiKey) {
     return true;
 }
 
-// ── apphash surface ────────────────────────────────────────────────────────
+// -- apphash surface --------------------------------------------------------
 //
 // The DLL's default apphash is SHA-256 of GetModuleFileNameA(NULL), which under
 // a JS host is node.exe / Electron.exe — not what identifies YOUR app. These
@@ -654,7 +654,7 @@ function logout() {
     return true;
 }
 
-// ── Data namespace — mirrors Atlas::Data:: ─────────────────────────────────
+// -- Data namespace — mirrors Atlas::Data:: ---------------------------------
 // Every getter routes through readString(), so a call before startup() or
 // before login() will throw AtlasError(NOT_AUTHED) with a clean message,
 // not a segfault.
@@ -694,7 +694,7 @@ const data = {
     },
 };
 
-// ── Account-mode API ──────────────────────────────────────────────────────
+// -- Account-mode API ------------------------------------------------------
 // Programmatic surface for Node / Electron / CLI callers. No Win32 dialogs.
 //
 // Flow:
@@ -823,7 +823,7 @@ function ping() {
     return fns.Ping();
 }
 
-// ── Network namespace — mirrors Atlas::Network:: ────────────────────────────
+// -- Network namespace — mirrors Atlas::Network:: ----------------------------
 const network = {
     checkAuthentication,
     banUser,
@@ -833,7 +833,7 @@ const network = {
     ping,
 };
 
-// ── metadata ────────────────────────────────────────────────────────────────
+// -- metadata ----------------------------------------------------------------
 
 /** DLL surface semver — reads once, caches. */
 function version() {

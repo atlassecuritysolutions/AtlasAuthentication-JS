@@ -52,13 +52,13 @@ function createWindow() {
     }
 }
 
-// ── one-time SDK bring-up ──────────────────────────────────────────────────
+// -- one-time SDK bring-up --------------------------------------------------
 function initAtlas() {
     try {
         // In production, load your key from a signed remote config, not
         // hardcoded. Electron apps unpack to plaintext -- treat this key as
         // sensitive metadata, not a secret. Rotate via dashboard on exposure.
-        atlas.setApiKey('894kO8WB5suGzk1KuLGoKsZyJPlnUEbYc3LYzZQq8axmgwFZ1rGBMnWzN6Wnjx8q');
+        atlas.setApiKey('YOUR_API_KEY');
         atlas.startup();
     } catch (err) {
         dialog.showErrorBox(
@@ -70,7 +70,7 @@ function initAtlas() {
     }
 }
 
-// ── Pending-registration stash (MAIN-PROCESS ONLY) ─────────────────────────
+// -- Pending-registration stash (MAIN-PROCESS ONLY) -------------------------
 // When a register-with-email flow returns needsVerify, we have to remember
 // the credentials the user just typed so the sign-in can resume once the
 // 8-digit confirmation code lands. Those credentials NEVER cross the IPC
@@ -109,7 +109,7 @@ function takeRegistration() {
     return p;
 }
 
-// ── IPC surface — narrow on purpose ─────────────────────────────────────────
+// -- IPC surface — narrow on purpose -----------------------------------------
 
 // Shared session-info builder. `username` is empty for license-only logins;
 // the renderer decides whether to show a Change-password button based on it.
@@ -121,7 +121,7 @@ function sessionSnapshot() {
         hwid:       atlas.data.getHWID(),
         ip:         atlas.data.getIP(),
         expiry:     atlas.data.getExpiry(),
-        level:      atlas.data.getLevel(),        // number
+        level:      atlas.data.getLevel(),
         note:       atlas.data.getNote(),
         userCount:  atlas.data.getUserCount(),
         active:     atlas.data.getActiveUserCount(),
