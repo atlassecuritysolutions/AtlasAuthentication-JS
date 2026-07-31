@@ -1,0 +1,28 @@
+{
+    "name": "atlas-auth-console-example",
+    "version": "1.0.0",
+    "description": "Atlas Authentication - Node console example, packaged as a Windows .exe.",
+    "main": "Atlas Auth Example.js",
+    "private": true,
+    "bin": "Atlas Auth Example.js",
+    "os": ["win32"],
+    "cpu": ["x64"],
+    "engines": { "node": ">=18" },
+    "scripts": {
+        "start":     "node \"Atlas Auth Example.js\"",
+        "build:exe": "pkg . --targets node22-win-x64 --output \"../../../../- Builds/Atlas Auth Example (JS).exe\" && copy /Y \"..\\Atlas SDK\\Atlas.dll\" \"..\\..\\..\\..\\- Builds\\Atlas.dll\""
+    },
+    "pkg": {
+        "assets": [
+            "../Atlas SDK/src/**/*",
+            "../Atlas SDK/package.json"
+        ],
+        "targets": ["node22-win-x64"]
+    },
+    "devDependencies": {
+        "@yao-pkg/pkg": "^6.6.0"
+    },
+    "dependencies": {
+        "koffi": "^2.9.0"
+    }
+}

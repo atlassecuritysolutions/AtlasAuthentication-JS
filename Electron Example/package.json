@@ -1,16 +1,20 @@
 {
   "name": "atlas-authentication-electron-example",
-  "version": "2.0.1",
+  "productName": "Atlas Auth Electron Example",
+  "version": "1.0.0",
   "description": "Atlas Authentication SDK - Electron desktop example. atlassecurity.site",
-  "main": "Atlas Auth Electron Example.js",
+  "main": "main.js",
   "private": true,
   "scripts": {
-    "start": "electron ."
+    "start":     "electron .",
+    "build:exe": "electron-packager . \"Atlas Auth Electron Example\" --platform=win32 --arch=x64 --out=\"../../../../- Builds\" --overwrite --asar.unpackDir=\"node_modules/{koffi,atlas-authentication}\" --extra-resource=\"../Atlas SDK/Atlas.dll\""
   },
   "devDependencies": {
-    "electron": "^32.0.0"
+    "electron":          "^32.0.0",
+    "electron-packager": "^17.1.2"
   },
   "dependencies": {
-    "koffi": "^2.9.0"
+    "atlas-authentication": "file:../Atlas SDK",
+    "koffi":                "^2.9.0"
   }
 }
