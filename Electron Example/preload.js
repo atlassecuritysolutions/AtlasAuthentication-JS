@@ -29,5 +29,4 @@ contextBridge.exposeInMainWorld('atlas', {
     status:         ()        => ipcRenderer.invoke('atlas:status'),
     signout:        ()        => ipcRenderer.invoke('atlas:signout'),
     openUrl:        (url)     => ipcRenderer.invoke('atlas:open-url', url),
-    env:            ()        => ipcRenderer.invoke('atlas:env'),
 });

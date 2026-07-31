@@ -1,891 +1,286 @@
-// ============================================================================
-// Atlas Authentication SDK — Node.js binding
+// Atlas authentication library.
+// Get your API key from atlassecurity.site/dashboard.
 //
-// Wraps Atlas.dll (built from the same C++ sources as the .lib) via koffi.
-// The high-level shape mirrors the C++ namespace exactly:
+//   const atlas = require('atlas-authentication');
+//   atlas.Startup();
+//   if (atlas.License.Login('license-key')) { /* signed in */ }
 //
-//   const atlas = require('./vendor/atlas-auth/src');
-//   atlas.setApiKey('...');
-//   atlas.startup();
-//   if (!atlas.login(key)) throw new Error(atlas.data.getErrorMessage());
-//   console.log(atlas.data.getLicense());
-//   atlas.network.checkAuthentication();
+// Namespace layout - pick the right bucket for the job:
 //
-// Everything else — heartbeat, integrity checks, watchdog, remote kill — runs
-// automatically inside the DLL from Startup() onwards. This binding is a
-// transport, not a re-implementation.
-//
-// This module is main-process only in Electron. See the electron-example
-// folder for the IPC pattern that keeps the renderer sandboxed.
-// ============================================================================
+//   atlas.                       shared/session (Data, Network, Variables, Webhook)
+//   atlas.License.               license-key sign-in (headless)
+//   atlas.Account.               username+password + email flow (headless)
 
-'use strict';
+const koffi = require('koffi');
+const path  = require('path');
+const fs    = require('fs');
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-const crypto = require('crypto');
-const updater = require('./updater');
+// Load Atlas.dll from disk. Packaged apps (pkg / Electron) ship the DLL
+// beside the exe or under resources/; dev checkouts ship it next to this
+// file. Probed in that order. Env override wins.
+const _dllPath = (() => {
+    if (process.env.ATLAS_DLL_PATH) return process.env.ATLAS_DLL_PATH;
+    const tries = [];
+    if (process.resourcesPath) tries.push(path.resolve(process.resourcesPath, 'Atlas.dll'));
+    tries.push(path.resolve(path.dirname(process.execPath), 'Atlas.dll'));
+    tries.push(path.resolve(__dirname, '..', 'Atlas.dll'));
+    for (const p of tries) { try { fs.accessSync(p); return p; } catch {} }
+    return tries[tries.length - 1];
+})();
+const _lib = koffi.load(_dllPath);
 
-// -- platform gate -----------------------------------------------------------
-// Atlas is Windows x64. Fail loudly at load-time rather than at first call.
-if (process.platform !== 'win32') {
-    throw new Error(
-        `Atlas SDK is Windows-only. Detected platform: ${process.platform}. ` +
-        `See atlassecurity.site/docs for cross-platform roadmap.`
-    );
-}
-if (process.arch !== 'x64') {
-    throw new Error(
-        `Atlas SDK requires x64 Node. Detected arch: ${process.arch}. ` +
-        `A 32-bit build will not run against Atlas.dll.`
-    );
-}
+const _OK = 0;
 
-// koffi is loaded lazily and via require (not import) so the module works
-// under CommonJS Electron main and any Node ≥18.
-let koffi;
-try { koffi = require('koffi'); }
-catch (e) {
-    throw new Error(
-        `koffi is required to load Atlas.dll. Install it: npm install koffi\n` +
-        `Original error: ${e.message}`
-    );
+// Standard C size-query pattern: NULL/0 -> bytes needed, then alloc + call.
+function _str(fn) {
+    const n = fn(null, 0);
+    if (n <= 0) return '';
+    const buf = Buffer.alloc(n);
+    fn(buf, n);
+    const end = buf.indexOf(0);
+    return buf.slice(0, end < 0 ? buf.length : end).toString('utf8');
 }
 
-// -- DLL location resolution -------------------------------------------------
-// Order of preference:
-//   1. Explicit path via ATLAS_DLL_PATH env var (used in dev + tests)
-//   2. Path passed to `init({ dllPath: '...' })`
-//   3. Atlas.dll next to this module (installed via npm)
-//   4. Atlas.dll in the current working directory (last resort for scripts)
-function resolveDllPath(explicit) {
-    if (explicit) return path.resolve(explicit);
-    if (process.env.ATLAS_DLL_PATH) return path.resolve(process.env.ATLAS_DLL_PATH);
-    // Package-relative — the DLL is shipped next to src/ in JS Integration/
-    const packaged = path.resolve(__dirname, '..', 'Atlas.dll');
-    return packaged;
-}
+// One line per Atlas_* export. Signatures mirror AtlasExports.cpp verbatim.
+const _c = {
+    SetApiKey:              _lib.func('int __cdecl Atlas_SetApiKey(const char*)'),
+    Startup:                _lib.func('int __cdecl Atlas_Startup()'),
+    Logout:                 _lib.func('int __cdecl Atlas_Logout()'),
+    Exit:                   _lib.func('void __cdecl Atlas_Exit()'),
 
-// -- version contract --------------------------------------------------------
-// This binding was written against DLL surface v2.x. It refuses to run
-// against a different major (breaking export ABI). Within a major we're
-// add-only, so a newer DLL is fine but an older one may be missing
-// exports we resolve at bind time.
-const BINDING_VERSION = '1.0.0';
-const REQUIRED_DLL_MAJOR = 1;
+    Login:                  _lib.func('int __cdecl Atlas_Login(const char*)'),
+    LoginUser:              _lib.func('int __cdecl Atlas_LoginUser(const char*, const char*)'),
+    Register:               _lib.func('int __cdecl Atlas_Register(const char*, const char*, const char*)'),
 
-function parseSemver(s) {
-    // Best-effort — accepts "1.0.0", "1.2", "1", tolerates trailing metadata.
-    const m = /^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(String(s || ''));
-    if (!m) return null;
-    return { major: +m[1], minor: +(m[2] || 0), patch: +(m[3] || 0) };
-}
+    LoginAccountEx:         _lib.func('int __cdecl Atlas_LoginAccountEx(const char*, const char*, _Out_ int*)'),
+    SubmitVerify:           _lib.func('int __cdecl Atlas_SubmitVerify(const char*)'),
+    ResendVerify:           _lib.func('int __cdecl Atlas_ResendVerify()'),
+    RegisterAccount:        _lib.func('int __cdecl Atlas_RegisterAccount(const char*, const char*, const char*)'),
+    ConfirmEmail:           _lib.func('int __cdecl Atlas_ConfirmEmail(const char*)'),
+    HasPendingEmailConfirm: _lib.func('int __cdecl Atlas_HasPendingEmailConfirm()'),
+    RedeemKey:              _lib.func('int __cdecl Atlas_RedeemKey(int, const char*)'),
+    RequestPasswordReset:   _lib.func('int __cdecl Atlas_RequestPasswordReset(const char*)'),
+    CompletePasswordReset:  _lib.func('int __cdecl Atlas_CompletePasswordReset(const char*, const char*)'),
 
-// -- status codes (mirror AtlasExports.cpp enum) -----------------------------
-const Status = Object.freeze({
-    OK: 0,
-    NOT_STARTED: 1,
-    NO_API_KEY: 2,
-    LOGIN_FAILED: 3,
-    NOT_AUTHED: 4,
-    BAD_ARG: 5,
-    BUFFER_TOO_SMALL: 6,
-    SERVER: 7,
-    INTERNAL: 8,
-    // LoginAccountEx returns this when the server wants an emailed 8-digit code.
-    // Caller renders their own prompt then calls submitVerification(code).
-    NEEDS_VERIFY: 10,
-});
+    GetLastVerifyMaskedEmail: _lib.func('int __cdecl Atlas_GetLastVerifyMaskedEmail(_Out_ char*, size_t)'),
+    GetLastVerifyIP:          _lib.func('int __cdecl Atlas_GetLastVerifyIP(_Out_ char*, size_t)'),
+    GetLastVerifyCountry:     _lib.func('int __cdecl Atlas_GetLastVerifyCountry(_Out_ char*, size_t)'),
 
-// Map a numeric status back to a readable name. Not localized on purpose:
-// the log surface (dashboard) is the localized surface, this is for devs.
-function statusName(code) {
-    const abs = Math.abs(code);
-    for (const [name, value] of Object.entries(Status)) {
-        if (value === abs) return name;
-    }
-    return `UNKNOWN(${code})`;
-}
+    CheckAuthentication:    _lib.func('int __cdecl Atlas_CheckAuthentication()'),
+    Ping:                   _lib.func('int __cdecl Atlas_Ping()'),
+    BanUser:                _lib.func('int __cdecl Atlas_BanUser(const char*, int)'),
+    SubmitLog:              _lib.func('int __cdecl Atlas_SubmitLog(const char*)'),
+    ChangePassword:         _lib.func('int __cdecl Atlas_ChangePassword(const char*, const char*)'),
 
-class AtlasError extends Error {
-    constructor(code, context) {
-        super(`Atlas ${statusName(code)}${context ? `: ${context}` : ''}`);
-        this.name = 'AtlasError';
-        this.code = Math.abs(code);
-        this.statusName = statusName(code);
-    }
-}
+    GetLicense:             _lib.func('int __cdecl Atlas_GetLicense(_Out_ char*, size_t)'),
+    GetUsername:            _lib.func('int __cdecl Atlas_GetUsername(_Out_ char*, size_t)'),
+    GetEmail:               _lib.func('int __cdecl Atlas_GetEmail(_Out_ char*, size_t)'),
+    GetPassword:            _lib.func('int __cdecl Atlas_GetPassword(_Out_ char*, size_t)'),
+    GetHWID:                _lib.func('int __cdecl Atlas_GetHWID(_Out_ char*, size_t)'),
+    GetIP:                  _lib.func('int __cdecl Atlas_GetIP(_Out_ char*, size_t)'),
+    GetExpiry:              _lib.func('int __cdecl Atlas_GetExpiry(_Out_ char*, size_t)'),
+    GetNote:                _lib.func('int __cdecl Atlas_GetNote(_Out_ char*, size_t)'),
+    GetDevice:              _lib.func('int __cdecl Atlas_GetDevice(_Out_ char*, size_t)'),
+    GetFirstSeenDate:       _lib.func('int __cdecl Atlas_GetFirstSeenDate(_Out_ char*, size_t)'),
+    GetLastSeenDate:        _lib.func('int __cdecl Atlas_GetLastSeenDate(_Out_ char*, size_t)'),
+    GetUserCount:           _lib.func('int __cdecl Atlas_GetUserCount(_Out_ char*, size_t)'),
+    GetActiveUserCount:     _lib.func('int __cdecl Atlas_GetActiveUserCount(_Out_ char*, size_t)'),
+    GetErrorMessage:        _lib.func('int __cdecl Atlas_GetErrorMessage(_Out_ char*, size_t)'),
+    GetLevel:               _lib.func('int __cdecl Atlas_GetLevel()'),
+    GetUserId:              _lib.func('int __cdecl Atlas_GetUserId()'),
+    GetDaysRemaining:       _lib.func('int __cdecl Atlas_GetDaysRemaining()'),
+    IsLifetime:             _lib.func('int __cdecl Atlas_IsLifetime()'),
+    IsExpiringSoon:         _lib.func('int __cdecl Atlas_IsExpiringSoon(int)'),
+    IsAuthenticated:        _lib.func('int __cdecl Atlas_IsAuthenticated()'),
+    IsBanned:               _lib.func('int __cdecl Atlas_IsBanned()'),
+    HasError:               _lib.func('int __cdecl Atlas_HasError()'),
+    ClearError:             _lib.func('void __cdecl Atlas_ClearError()'),
 
-// -- DLL binding state -------------------------------------------------------
-let lib = null;                 // koffi library handle
-let fns = null;                 // resolved function handles
-let didStartup = false;         // startup() called at least once (successfully)
-let dllVersion = null;          // discovered on first bind
-let didSetQuiet = false;        // ensure quiet mode is set at most once per process
-let apiKeyIsSet = false;        // setApiKey succeeded — startup preflight uses this
+    VariableFetch:          _lib.func('int __cdecl Atlas_VariableFetch(const char*, _Out_ char*, size_t)'),
+    VariableFetchBool:      _lib.func('int __cdecl Atlas_VariableFetchBool(const char*)'),
+    VariableFetchInt:       _lib.func('int __cdecl Atlas_VariableFetchInt(const char*)'),
 
-// Bind every export lazily on first use. Doing this at require-time would
-// force the DLL to load even for tools that just want to check `Atlas.Status`.
-function ensureBound(options) {
-    if (fns) return;
-    const dllPath = resolveDllPath(options && options.dllPath);
-    // If a sidecar Atlas.dll.new was placed by a previous session's
-    // updater run, promote it BEFORE koffi loads. Once koffi has the DLL
-    // open, Windows locks the file and we can't swap it. This is the
-    // moral equivalent of the C++ updater's MSBuild pre-compile step.
-    // Never throws — worst case the sidecar sticks around for a future try.
-    try { updater.promotePendingSidecar(dllPath); } catch { /* best effort */ }
-    try {
-        lib = koffi.load(dllPath);
-    } catch (e) {
-        throw new Error(
-            `Failed to load Atlas.dll from ${dllPath}\n` +
-            `Set ATLAS_DLL_PATH or pass { dllPath: '...' } to init().\n` +
-            `Original error: ${e.message}`
-        );
-    }
+    WebhookSendDiscord:      _lib.func('int __cdecl Atlas_WebhookSendDiscord(const char*, const char*)'),
+    WebhookSendDiscordEmbed: _lib.func('int __cdecl Atlas_WebhookSendDiscordEmbed(const char*, const char*, const char*, int)'),
+    WebhookSend:             _lib.func('int __cdecl Atlas_WebhookSend(const char*, const char*)'),
+};
 
-    // Every declaration below mirrors the extern "C" signatures in
-    // AtlasExports.cpp verbatim. Any drift will fail on first call, not silently.
-    try {
-        fns = {
-            SetApiKey:           lib.func('int __cdecl Atlas_SetApiKey(const char*)'),
-            SetQuiet:            lib.func('int __cdecl Atlas_SetQuiet(int)'),
-            SetAppHashPath:      lib.func('int __cdecl Atlas_SetAppHashPath(const char*)'),
-            SetAppHash:          lib.func('int __cdecl Atlas_SetAppHash(const char*)'),
-            GetResolvedAppHash:  lib.func('int __cdecl Atlas_GetResolvedAppHash(_Out_ char*, size_t)'),
-            Startup:             lib.func('int __cdecl Atlas_Startup()'),
-            Login:               lib.func('int __cdecl Atlas_Login(const char*)'),
-            LoginUser:           lib.func('int __cdecl Atlas_LoginUser(const char*, const char*)'),
-            Register:            lib.func('int __cdecl Atlas_Register(const char*, const char*, const char*)'),
-            IsAuthenticated:     lib.func('int __cdecl Atlas_IsAuthenticated()'),
-            IsBanned:            lib.func('int __cdecl Atlas_IsBanned()'),
-            IsDllHost:           lib.func('int __cdecl Atlas_IsDllHost()'),
-            Exit:                lib.func('void __cdecl Atlas_Exit()'),
-            Logout:              lib.func('int __cdecl Atlas_Logout()'),
-            CheckAuthentication: lib.func('int __cdecl Atlas_CheckAuthentication()'),
-            BanUser:             lib.func('int __cdecl Atlas_BanUser(const char*, int)'),
-            SubmitLog:           lib.func('int __cdecl Atlas_SubmitLog(const char*)'),
-            ChangePassword:      lib.func('int __cdecl Atlas_ChangePassword(const char*, const char*)'),
-            Ping:                lib.func('int __cdecl Atlas_Ping()'),
-            Download:            lib.func('int __cdecl Atlas_Download(int, _Out_ uint8_t*, size_t)'),
-            GetLicense:          lib.func('int __cdecl Atlas_GetLicense(_Out_ char*, size_t)'),
-            GetUsername:         lib.func('int __cdecl Atlas_GetUsername(_Out_ char*, size_t)'),
-            GetEmail:            lib.func('int __cdecl Atlas_GetEmail(_Out_ char*, size_t)'),
-            GetPassword:         lib.func('int __cdecl Atlas_GetPassword(_Out_ char*, size_t)'),
-            GetHWID:             lib.func('int __cdecl Atlas_GetHWID(_Out_ char*, size_t)'),
-            GetIP:               lib.func('int __cdecl Atlas_GetIP(_Out_ char*, size_t)'),
-            GetExpiry:           lib.func('int __cdecl Atlas_GetExpiry(_Out_ char*, size_t)'),
-            GetLevel:            lib.func('int __cdecl Atlas_GetLevel()'),
-            GetNote:             lib.func('int __cdecl Atlas_GetNote(_Out_ char*, size_t)'),
-            GetUserCount:        lib.func('int __cdecl Atlas_GetUserCount(_Out_ char*, size_t)'),
-            GetActiveUserCount:  lib.func('int __cdecl Atlas_GetActiveUserCount(_Out_ char*, size_t)'),
-            GetErrorMessage:     lib.func('int __cdecl Atlas_GetErrorMessage(_Out_ char*, size_t)'),
-            Version:             lib.func('int __cdecl Atlas_Version(_Out_ char*, size_t)'),
-            LoginAccountEx:        lib.func('int __cdecl Atlas_LoginAccountEx(const char*, const char*, _Out_ int*)'),
-            SubmitVerify:          lib.func('int __cdecl Atlas_SubmitVerify(const char*)'),
-            ResendVerify:          lib.func('int __cdecl Atlas_ResendVerify()'),
-            RegisterAccount:       lib.func('int __cdecl Atlas_RegisterAccount(const char*, const char*, const char*)'),
-            RedeemKey:             lib.func('int __cdecl Atlas_RedeemKey(int, const char*)'),
-            RequestPasswordReset:  lib.func('int __cdecl Atlas_RequestPasswordReset(const char*)'),
-            CompletePasswordReset: lib.func('int __cdecl Atlas_CompletePasswordReset(const char*, const char*)'),
-            GetUserId:             lib.func('int __cdecl Atlas_GetUserId()'),
-            GetSecondsUntilExpiry: lib.func('int64_t __cdecl Atlas_GetSecondsUntilExpiry()'),
-        };
-    } catch (e) {
-        // Any missing export means the loaded DLL is older than this binding
-        // (or drifted from AtlasExports.cpp). Fail with a specific message —
-        // "unresolved import Atlas_SetQuiet" beats "koffi crash" for triage.
-        throw new Error(
-            `Atlas.dll at ${dllPath} is missing a required export. ` +
-            `This binding requires DLL surface >= ${BINDING_VERSION}. ` +
-            `Original error: ${e.message}`
-        );
-    }
 
-    // Version discovery + hard gate on major mismatch. Reading the version
-    // is safe pre-Startup; Atlas_Version() is a pure metadata accessor.
-    dllVersion = readString(fns.Version);
-    const semver = parseSemver(dllVersion);
-    if (!semver) {
-        throw new Error(
-            `Atlas.dll returned unparseable version: ${JSON.stringify(dllVersion)}. ` +
-            `Expected semver like "1.0.0".`
-        );
-    }
-    if (semver.major !== REQUIRED_DLL_MAJOR) {
-        throw new Error(
-            `Atlas.dll version ${dllVersion} is incompatible with binding ` +
-            `${BINDING_VERSION}. This binding requires DLL major version ` +
-            `${REQUIRED_DLL_MAJOR}. Upgrade the binding or downgrade the DLL.`
-        );
-    }
+const Atlas = {
+    // Your app's API key. Get it from atlassecurity.site/dashboard.
+    API_KEY: '894kO8WB5suGzk1KuLGoKsZyJPlnUEbYc3LYzZQq8axmgwFZ1rGBMnWzN6Wnjx8q',
 
-    // Opt into headless mode by default. Node/Electron hosts don't want the
-    // SDK popping modal MessageBoxes on startup failure; they want a return
-    // code they can display in their own UI. A user who explicitly wants
-    // modals can call `atlas.setQuiet(false)` before startup().
-    if (!didSetQuiet) {
-        try { fns.SetQuiet(1); didSetQuiet = true; } catch { /* older DLL — best effort */ }
-    }
-}
 
-// -- size-query buffer pattern helper ----------------------------------------
-// The DLL uses the standard C pattern: pass NULL/0 to get bytes-needed, then
-// allocate and call again. Wrapping this once here means the entire API below
-// is one-liners.
-function readString(fn) {
-    // Do NOT ensureBound here — this is called from ensureBound itself for
-    // the version probe, so it must be safe pre-bind. Callers outside
-    // ensureBound must ensure fns is set.
-    const needed = fn(null, 0);
-    if (needed <= 0) {
-        // Negative return = negated status code; empty string on 0.
-        if (needed === 0) return '';
-        throw new AtlasError(needed);
-    }
-    const buf = Buffer.alloc(needed);
-    const written = fn(buf, needed);
-    if (written < 0) throw new AtlasError(written);
-    // Strip the trailing NUL that copy_out() wrote.
-    return buf.slice(0, written - 1).toString('utf8');
-}
+    // -- Session lifecycle ----------------------------------------------
 
-// -- input validation helpers ------------------------------------------------
-// Repeated shape across the API — extract for consistency + a single place
-// to change if we start accepting more permissive input.
-function requireNonEmptyString(name, value) {
-    if (typeof value !== 'string') {
-        throw new AtlasError(Status.BAD_ARG, `${name} must be a string, got ${typeof value}`);
-    }
-    if (value.length === 0) {
-        throw new AtlasError(Status.BAD_ARG, `${name} must be non-empty`);
-    }
-    // The DLL's own limits will reject overlong strings server-side, but a
-    // JS-side sanity cap catches obvious bugs (someone accidentally passing
-    // a file buffer as a string) before they hit the wire.
-    if (value.length > 65536) {
-        throw new AtlasError(Status.BAD_ARG, `${name} exceeds 64KB — probably a bug`);
-    }
-}
-
-function requireInt(name, value, { min, max } = {}) {
-    if (!Number.isInteger(value)) {
-        throw new AtlasError(Status.BAD_ARG, `${name} must be an integer, got ${typeof value === 'number' ? value : typeof value}`);
-    }
-    if (min != null && value < min) {
-        throw new AtlasError(Status.BAD_ARG, `${name} must be >= ${min}, got ${value}`);
-    }
-    if (max != null && value > max) {
-        throw new AtlasError(Status.BAD_ARG, `${name} must be <= ${max}, got ${value}`);
-    }
-}
-
-// -- public API --------------------------------------------------------------
-
-/**
- * Initialize the binding with explicit options. Optional — call before
- * setApiKey() if you need to override the DLL path.
- */
-function init(options) {
-    ensureBound(options || {});
-}
-
-/**
- * Opt out of / into headless mode. By default the binding runs in quiet mode
- * (no modal MessageBoxes from the SDK). Pass true to re-enable modals.
- * Must be called before startup(). Idempotent.
- */
-function setQuiet(quiet) {
-    ensureBound();
-    const rc = fns.SetQuiet(quiet ? 1 : 0);
-    if (rc !== Status.OK) throw new AtlasError(rc);
-    didSetQuiet = true;
-    return true;
-}
-
-/**
- * Set the API key. Must be called before startup(). Matches the C++ pattern
- * where the user's code defines `Atlas::API_KEY`.
- */
-function setApiKey(apiKey) {
-    ensureBound();
-    requireNonEmptyString('apiKey', apiKey);
-    if (apiKey === 'YOUR_API_KEY_HERE') {
-        throw new AtlasError(Status.BAD_ARG, 'apiKey is the placeholder string — set your real key');
-    }
-    const rc = fns.SetApiKey(apiKey);
-    if (rc !== Status.OK) throw new AtlasError(rc);
-    apiKeyIsSet = true;
-    return true;
-}
-
-// -- apphash surface --------------------------------------------------------
-//
-// The DLL's default apphash is SHA-256 of GetModuleFileNameA(NULL), which under
-// a JS host is node.exe / Electron.exe — not what identifies YOUR app. These
-// helpers let you pin the apphash to a file that actually represents your app
-// (an .asar, your bundle, whatever). See docs/AppHash.md for the security
-// contract.
-//
-// Both are one-shot AND lock after startup(). Trying to change the apphash
-// after startup() is a BAD_ARG. That's not a limitation — it's the security
-// property that stops injected DLLs from mid-run apphash swaps.
-//
-// The high-level path (recommended for most users):
-//   atlas.setAppHashFromFile('./resources/app.asar');
-//   atlas.startup();
-//
-// The low-level literal path (build-pipeline precomputed hashes):
-//   atlas.setAppHash('abc123...64chars');
-//
-// The DLL-side path override (rare — when you want the DLL to read the file):
-//   atlas.setAppHashPath('C:/path/to/app.asar');
-
-/**
- * Hash a file with SHA-256 and pin it as the apphash. Reads the file in JS
- * (Node's crypto is right here — no DLL round-trip, no timing gap between
- * "set path" and "DLL reads path"). Recommended for Electron: point at your
- * .asar or your compiled bundle.
- *
- * Idempotent-adjacent: the DLL enforces one-shot, so a second call throws.
- */
-function setAppHashFromFile(filePath) {
-    ensureBound();
-    requireNonEmptyString('filePath', filePath);
-    let bytes;
-    try {
-        bytes = fs.readFileSync(filePath);
-    } catch (err) {
-        throw new AtlasError(Status.BAD_ARG, `failed to read apphash source ${filePath}: ${err.message}`);
-    }
-    if (bytes.length === 0) {
-        throw new AtlasError(Status.BAD_ARG, `apphash source ${filePath} is empty`);
-    }
-    const hex = crypto.createHash('sha256').update(bytes).digest('hex');
-    return setAppHash(hex);
-}
-
-/**
- * Pin the apphash to a precomputed hex-64 SHA-256 string. Use for values
- * produced by your build pipeline. Rejects anything that isn't strictly
- * lowercase-hex length 64 (the DLL rejects it too — this JS check is just
- * for a clearer error before the DLL round-trip).
- */
-function setAppHash(hex64) {
-    ensureBound();
-    requireNonEmptyString('hex64', hex64);
-    if (!/^[0-9a-f]{64}$/.test(hex64)) {
-        throw new AtlasError(Status.BAD_ARG, 'hex64 must be exactly 64 lowercase hex chars (SHA-256)');
-    }
-    const rc = fns.SetAppHash(hex64);
-    if (rc !== Status.OK) throw new AtlasError(rc, 'apphash already set or startup already ran');
-    return true;
-}
-
-/**
- * Ask the DLL to hash a specific path itself. Prefer setAppHashFromFile()
- * unless you have a specific reason — the DLL-side path override introduces
- * a small window between set-time and read-time where the file on disk
- * could be swapped by an attacker with local write access.
- */
-function setAppHashPath(filePath) {
-    ensureBound();
-    requireNonEmptyString('filePath', filePath);
-    const rc = fns.SetAppHashPath(filePath);
-    if (rc !== Status.OK) throw new AtlasError(rc, 'apphash path already set or startup already ran');
-    return true;
-}
-
-/**
- * Read the apphash that WILL be sent to the server on the next request.
- * Useful for support tickets and debug logs. Returns empty string if the
- * source file couldn't be read.
- */
-function getResolvedAppHash() {
-    ensureBound();
-    return readString(fns.GetResolvedAppHash);
-}
-
-/**
- * Try to auto-detect an appropriate apphash source for common JS hosts.
- * Returns the path used, or null if nothing sensible was found. Called
- * automatically by startup() if no apphash override was set explicitly.
- *
- * Detection order (first match wins):
- *   1. Under Electron: `<process.resourcesPath>/app.asar`
- *      This is where electron-builder puts the app, and it uniquely
- *      identifies the developer's shipped code.
- *   2. Node with an npm-launched script: `require.main.filename`
- *      The entry script — not node.exe. Same code across users = same hash.
- *   3. Neither: null → falls through to DLL default (node.exe / Electron.exe)
- *      with a warning logged (not thrown — some users genuinely want this).
- */
-function autoDetectAppHashSource() {
-    // 1. Electron main process
-    if (process.versions && process.versions.electron && process.resourcesPath) {
-        const asar = path.join(process.resourcesPath, 'app.asar');
-        if (fs.existsSync(asar)) return asar;
-        // Unpacked electron dev mode — resources/app/ directory. No stable
-        // single-file hash; skip to next mode.
-    }
-    // 2. Regular Node with a main entry script
-    if (require.main && require.main.filename) {
-        return require.main.filename;
-    }
-    return null;
-}
-
-// Tracks whether the caller explicitly set an apphash. If not, startup()
-// auto-picks a sensible default via autoDetectAppHashSource(). Mutated by
-// each of the three set*AppHash* wrappers below the main function bodies.
-let apphashSetByCaller = false;
-
-// Wrappers over the raw setters — these are what get exported. They flip
-// the "caller was explicit" flag ONLY on success, so a failed call
-// (e.g. invalid hex format) doesn't accidentally suppress auto-detection.
-function setAppHashPublic(hex64) {
-    const rv = setAppHash(hex64);   // throws on failure
-    apphashSetByCaller = true;
-    return rv;
-}
-function setAppHashPathPublic(filePath) {
-    const rv = setAppHashPath(filePath);
-    apphashSetByCaller = true;
-    return rv;
-}
-function setAppHashFromFilePublic(fp) {
-    const rv = setAppHashFromFile(fp);
-    apphashSetByCaller = true;
-    return rv;
-}
-
-/**
- * Initialize the Atlas protection stack. Idempotent: safe to call multiple
- * times but only takes effect once.
- *
- * If no apphash override was set by the caller, tries autoDetectAppHashSource()
- * and pins to that. Under Electron this defaults to app.asar; under Node
- * to require.main.filename. If auto-detection returns null, the DLL falls
- * back to hashing node.exe / Electron.exe (documented behavior).
- */
-function startup() {
-    ensureBound();
-    // Preflight — don't touch the apphash one-shot if we can predict Startup
-    // will fail. Once the apphash is set, the DLL locks it forever; a failed
-    // Startup with autodetect'd apphash leaves the caller unable to retry.
-    if (!apiKeyIsSet) {
-        throw new AtlasError(Status.NO_API_KEY, 'call setApiKey() before startup()');
-    }
-    if (!apphashSetByCaller) {
-        const auto = autoDetectAppHashSource();
-        if (auto) {
-            // Best-effort: never let auto-detection failure block startup.
-            // If the file is missing or unreadable, fall through to default.
-            try {
-                setAppHashFromFile(auto);
-            } catch { /* fall through — DLL uses node.exe */ }
-        }
-    }
-    const rc = fns.Startup();
-    if (rc !== Status.OK) throw new AtlasError(rc);
-    didStartup = true;
-    // Kick off an out-of-band update check if the developer opted in.
-    // Runs in the background — never blocks startup, never throws to the
-    // caller. If a newer DLL is available, a sidecar Atlas.dll.new is
-    // written and promoted at the next process start. Mirrors the C++
-    // updater's "fires on Startup, doesn't affect this run" contract.
-    if (updater.isOptedIn()) {
-        const dllPath = resolveDllPath();
-        Promise.resolve()
-            .then(() => updater.tryUpdate({ dllPath }))
-            .catch(() => {}); // updater is fail-soft; nothing to bubble
-    }
-    return true;
-}
-
-/**
- * Authenticate the given license key against the Atlas server. Returns
- * true on success, false on server rejection. Read `data.getErrorMessage()`
- * for the server's reason on false. Any other failure (transport, uninit,
- * bad arg) throws an AtlasError.
- */
-/**
- * Authenticate. Two shapes:
- *   login(licenseKey)                — license-only login (the classic flow)
- *   login(username, password)        — user-account login (post-Register)
- *
- * Returns true on success, false on server rejection. Throws AtlasError for
- * shape / state errors. Read atlas.data.getErrorMessage() for the reason
- * on a `false` return.
- */
-function login(a, b) {
-    if (!didStartup) throw new AtlasError(Status.NOT_STARTED);
-    if (typeof b === 'string' && b.length > 0) {
-        // User-pass mode.
-        requireNonEmptyString('username', a);
-        requireNonEmptyString('password', b);
-        const rc = fns.LoginUser(a, b);
-        if (rc === Status.OK) return true;
-        if (rc === Status.LOGIN_FAILED) return false;
-        throw new AtlasError(rc);
-    }
-    // License-key mode.
-    requireNonEmptyString('licenseKey', a);
-    const rc = fns.Login(a);
-    if (rc === Status.OK) return true;
-    if (rc === Status.LOGIN_FAILED) return false;
-    throw new AtlasError(rc);
-}
-
-/**
- * Bind a license key to a new username/password account. One-shot; on
- * success the caller should call login(username, password) to open a real
- * session. Returns true on success, false on server rejection.
- */
-function register(licenseKey, username, password) {
-    if (!didStartup) throw new AtlasError(Status.NOT_STARTED);
-    requireNonEmptyString('licenseKey', licenseKey);
-    requireNonEmptyString('username', username);
-    requireNonEmptyString('password', password);
-    const rc = fns.Register(licenseKey, username, password);
-    if (rc === Status.OK) return true;
-    if (rc === Status.LOGIN_FAILED) return false;
-    throw new AtlasError(rc);
-}
-
-/**
- * Verify the session is still valid server-side. Call periodically (the
- * DLL's own heartbeat runs every 5s regardless — this is for on-demand
- * checkpoints, e.g. before revealing gated UI). Returns true if still auth'd.
- */
-function checkAuthentication() {
-    ensureBound();
-    const rc = fns.CheckAuthentication();
-    if (rc === Status.OK) return true;
-    if (rc === Status.SERVER) return false;
-    throw new AtlasError(rc);
-}
-
-/**
- * Ban the current user. Requires an API key with ban permissions in the
- * dashboard. duration_minutes = 0 means permanent.
- */
-function banUser(reason, durationMinutes) {
-    ensureBound();
-    requireNonEmptyString('reason', reason);
-    requireInt('durationMinutes', durationMinutes, { min: 0, max: 525600 * 100 }); // ~100 years
-    const rc = fns.BanUser(reason, durationMinutes);
-    if (rc !== Status.OK) throw new AtlasError(rc);
-    return true;
-}
-
-/**
- * Write a custom log entry to the dashboard Logs tab.
- */
-function submitLog(text) {
-    ensureBound();
-    requireNonEmptyString('text', text);
-    const rc = fns.SubmitLog(text);
-    if (rc !== Status.OK) throw new AtlasError(rc);
-    return true;
-}
-
-/**
- * Change the password of the current password account. Only valid after
- * login(username, password); license-only sessions return false with the
- * reason in data.getErrorMessage(). newPassword must be 3-128 characters
- * and differ from oldPassword.
- *
- * Returns true on success, false on server rejection (bad credentials, same
- * password, account paused). Throws AtlasError for transport / not-authed
- * failures — same convention as login().
- */
-function changePassword(oldPassword, newPassword) {
-    ensureBound();
-    requireNonEmptyString('oldPassword', oldPassword);
-    requireNonEmptyString('newPassword', newPassword);
-    const rc = fns.ChangePassword(oldPassword, newPassword);
-    if (rc === Status.OK) return true;
-    if (rc === Status.SERVER) return false; // GetErrorMessage carries the reason
-    throw new AtlasError(rc);
-}
-
-/**
- * Download a panel-uploaded file by its numeric ID. Returns a Buffer with
- * the raw bytes. Throws AtlasError on transport failure or if the file
- * doesn't exist.
- */
-function download(fileId) {
-    ensureBound();
-    requireInt('fileId', fileId, { min: 0, max: 0x7FFFFFFF });
-    // Size query — negative return = -status, positive = bytes needed.
-    const needed = fns.Download(fileId, null, 0);
-    if (needed < 0) throw new AtlasError(needed);
-    if (needed === 0) return Buffer.alloc(0);
-    const buf = Buffer.alloc(needed);
-    const written = fns.Download(fileId, buf, needed);
-    if (written < 0) throw new AtlasError(written);
-    return buf.slice(0, written);
-}
-
-/**
- * Terminate the process via the SDK's own kill path. Prefer this over
- * `process.exit()` for ban/tamper responses — a soft process.exit() can
- * be patched out of your JS bundle by an attacker; the SDK's Exit()
- * routes through Atlas.dll's kernel-level fastfail.
- */
-function exit() {
-    ensureBound();
-    fns.Exit();
-}
-
-/**
- * Gentle sign-out. Tells the server to tear down the session, closes the
- * socket, zeroes credentials -- but leaves the process running. Use this
- * when a user clicks "Sign out" in your UI and should return to the login
- * screen. For attacker/tamper responses use exit() instead.
- */
-function logout() {
-    ensureBound();
-    const rc = fns.Logout();
-    if (rc !== Status.OK) throw new AtlasError(rc);
-    return true;
-}
-
-// -- Data namespace — mirrors Atlas::Data:: ---------------------------------
-// Every getter routes through readString(), so a call before startup() or
-// before login() will throw AtlasError(NOT_AUTHED) with a clean message,
-// not a segfault.
-const data = {
-    getLicense:         () => { ensureBound(); return readString(fns.GetLicense); },
-    // getUsername returns the password-account name when the session was opened via
-    // login(username, password). Empty string for license-only logins — same semantics
-    // as Atlas::Data::GetUsername() on the C++ side.
-    getUsername:        () => { ensureBound(); return readString(fns.GetUsername); },
-    getEmail:           () => { ensureBound(); return readString(fns.GetEmail); },
-    getPassword:        () => { ensureBound(); return readString(fns.GetPassword); },
-    getHWID:            () => { ensureBound(); return readString(fns.GetHWID); },
-    getIP:              () => { ensureBound(); return readString(fns.GetIP); },
-    getExpiry:          () => { ensureBound(); return readString(fns.GetExpiry); },
-    // getLevel returns a plain number (0 when unknown or unauthenticated).
-    getLevel:           () => { ensureBound(); return fns.GetLevel(); },
-    getNote:            () => { ensureBound(); return readString(fns.GetNote); },
-    getUserCount:       () => { ensureBound(); return readString(fns.GetUserCount); },
-    getActiveUserCount: () => { ensureBound(); return readString(fns.GetActiveUserCount); },
-    getErrorMessage:    () => { ensureBound(); return readString(fns.GetErrorMessage); },
-    isAuthenticated:    () => { ensureBound(); return fns.IsAuthenticated() === 1; },
-    isBanned:           () => { ensureBound(); return fns.IsBanned() === 1; },
-    // Signed-in account_users.id. 0 = license-only session or not signed in.
-    getUserId:          () => { ensureBound(); return fns.GetUserId(); },
-    // Seconds until the current account's expiry.
-    // Number.POSITIVE_INFINITY = no expiry, 0 = expired.
-    getSecondsUntilExpiry: () => {
-        ensureBound();
-        const n = fns.GetSecondsUntilExpiry();
-        if (n < 0n && n === -1n) return Number.POSITIVE_INFINITY;
-        // koffi returns int64 as BigInt in modern Node; coerce to Number
-        // when it fits, else return the BigInt so the caller can inspect.
-        if (typeof n === 'bigint') {
-            return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n;
-        }
-        return n < 0 ? Number.POSITIVE_INFINITY : n;
+    // Initialise the library. Call once at the top of main().
+    Startup() {
+        _c.SetApiKey(this.API_KEY);
+        const rc = _c.Startup();
+        if (rc !== _OK) throw new Error(_str(_c.GetErrorMessage) || `Atlas_Startup failed (${rc})`);
     },
+
+    // Terminate the session and clear all authentication state.
+    Logout() { _c.Logout(); },
+
+    // Hard-kill the process via __fastfail. Uncatchable, no cleanup.
+    Exit() { _c.Exit(); },
 };
 
-// -- Account-mode API ------------------------------------------------------
-// Programmatic surface for Node / Electron / CLI callers. No Win32 dialogs.
-//
-// Flow:
-//   1. atlas.account.register(...)          create the account
-//   2. atlas.account.login(u, p)            → { status: 'ok' | 'needs_verify' | ... }
-//   3. if 'needs_verify': prompt the user for the code, then
-//      atlas.account.submitVerification(code)
-//   4. atlas.account.redeemKey(userId, licenseKey)  → add days
 
-function accountRegister(username, password, email) {
-    ensureBound();
-    requireNonEmptyString('username', username);
-    requireNonEmptyString('password', password);
-    if (email != null) {
-        if (typeof email !== 'string') {
-            throw new AtlasError(Status.BAD_ARG, 'email must be a string or omitted');
-        }
-    }
-    const rc = fns.RegisterAccount(username, password, email || '');
-    if (rc !== Status.OK) {
-        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Register failed');
-    }
-    return true;
-}
+// -- License mode --------------------------------------------------------
+// Classic single-user, license-key auth. No email, no verify code.
 
-function accountLogin(username, password) {
-    ensureBound();
-    requireNonEmptyString('username', username);
-    requireNonEmptyString('password', password);
-    const userIdOut = [0];
-    const rc = fns.LoginAccountEx(username, password, userIdOut);
-    if (rc === Status.OK) {
-        return { status: 'ok', userId: userIdOut[0] };
-    }
-    if (rc === Status.NEEDS_VERIFY) {
-        return { status: 'needs_verify' };
-    }
-    if (rc === Status.LOGIN_FAILED) {
-        return {
-            status: 'wrong_credentials',
-            error: readString(fns.GetErrorMessage) || 'Wrong username or password',
+Atlas.License = {
+    Login:     (license_key) => _c.Login(license_key) === _OK,
+    // Username + password sign-in for a license bound to one user (legacy USR mode).
+    // For the multi-user flow with email verify, use Atlas.Account.Login.
+    LoginUser: (username, password) => _c.LoginUser(username, password) === _OK,
+    // Bind a license key to a new username/password (legacy REG mode).
+    // Does NOT sign in on success - call LoginUser(u, p) after.
+    Register:  (license_key, username, password) => _c.Register(license_key, username, password) === _OK,
+};
+
+
+// -- Account mode --------------------------------------------------------
+// Multi-user (username / password / email) accounts with email verify,
+// password reset, and the redeem-a-key-onto-my-account flow.
+
+Atlas.Account = {
+    Status: Object.freeze({
+        Ok:                'Ok',
+        WrongCredentials:  'WrongCredentials',
+        NeedsVerification: 'NeedsVerification',
+        Error:             'Error',
+    }),
+
+    // Sign in with account credentials. Check result.status.
+    // On NeedsVerification the SDK holds the challenge - call SubmitVerification(code).
+    Login(username, password) {
+        const uid = [0];
+        const rc = _c.LoginAccountEx(username, password, uid);
+        const r = {
+            status: 'Error', user_id: uid[0], error_message: '',
+            masked_email: '', sign_in_ip: '', sign_in_country: '',
         };
-    }
-    throw new AtlasError(rc, readString(fns.GetErrorMessage));
-}
+        if      (rc === _OK) r.status = 'Ok';
+        else if (rc === 10)  {
+            r.status = 'NeedsVerification';
+            r.masked_email    = _str(_c.GetLastVerifyMaskedEmail);
+            r.sign_in_ip      = _str(_c.GetLastVerifyIP);
+            r.sign_in_country = _str(_c.GetLastVerifyCountry);
+        }
+        else if (rc === 3)   { r.status = 'WrongCredentials'; r.error_message = _str(_c.GetErrorMessage); }
+        else                 { r.status = 'Error';            r.error_message = _str(_c.GetErrorMessage); }
+        return r;
+    },
 
-function submitVerification(eightDigitCode) {
-    ensureBound();
-    requireNonEmptyString('eightDigitCode', eightDigitCode);
-    if (!/^\d{8}$/.test(eightDigitCode)) {
-        throw new AtlasError(Status.BAD_ARG, 'eightDigitCode must be exactly 8 digits');
-    }
-    const rc = fns.SubmitVerify(eightDigitCode);
-    if (rc !== Status.OK) {
-        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Verification failed');
-    }
-    return true;
-}
-
-function resendVerification() {
-    ensureBound();
-    const rc = fns.ResendVerify();
-    if (rc !== Status.OK) {
-        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Resend failed');
-    }
-    return true;
-}
-
-/**
- * Redeem a license key onto the currently signed-in account. Stacks on the
- * existing expiry. The DLL reads the user_id from the current session; callers
- * no longer pass one.
- */
-function redeem(licenseKey) {
-    ensureBound();
-    requireNonEmptyString('licenseKey', licenseKey);
-    const rc = fns.RedeemKey(0, licenseKey);  // 0 → DLL uses session-scoped user_id
-    if (rc !== Status.OK) {
-        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Redeem failed');
-    }
-    return true;
-}
-
-// Server always returns OK (anti-enumeration). Never leak to the user
-// whether the identifier actually matched an account.
-function requestPasswordReset(identifier) {
-    ensureBound();
-    requireNonEmptyString('identifier', identifier);
-    const rc = fns.RequestPasswordReset(identifier);
-    if (rc !== Status.OK) {
-        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Reset request failed');
-    }
-    return true;
-}
-
-function completePasswordReset(eightDigitCode, newPassword) {
-    ensureBound();
-    requireNonEmptyString('eightDigitCode', eightDigitCode);
-    requireNonEmptyString('newPassword', newPassword);
-    if (!/^\d{8}$/.test(eightDigitCode)) {
-        throw new AtlasError(Status.BAD_ARG, 'eightDigitCode must be exactly 8 digits');
-    }
-    const rc = fns.CompletePasswordReset(eightDigitCode, newPassword);
-    if (rc !== Status.OK) {
-        throw new AtlasError(rc, readString(fns.GetErrorMessage) || 'Complete reset failed');
-    }
-    return true;
-}
-
-const account = {
-    register:               accountRegister,
-    login:                  accountLogin,
-    submitVerification,
-    resendVerification,
-    redeem,
-    requestPasswordReset,
-    completePasswordReset,
+    // Create a standalone account. Email optional but needed for password reset.
+    // Does NOT sign in. If email is set, account stays unverified until ConfirmEmail.
+    Register:               (username, password, email = '') => _c.RegisterAccount(username, password, email) === _OK,
+    // Submit the 8-digit code for the pending sign-in verify challenge.
+    SubmitVerification:     (code) => _c.SubmitVerify(code) === _OK,
+    // Resend the sign-in verification code (60s server-side cooldown).
+    ResendVerification:     () => _c.ResendVerify() === _OK,
+    // Confirm a newly-registered account's email with the emailed code.
+    ConfirmEmail:           (code) => _c.ConfirmEmail(code) === _OK,
+    // True while a registration email-confirm is pending.
+    HasPendingEmailConfirm: () => _c.HasPendingEmailConfirm() !== 0,
+    // Redeem a license key onto the currently signed-in account.
+    Redeem:                 (license_key) => _c.RedeemKey(0, license_key) === _OK,
+    // Start a password reset. identifier = username or email.
+    // Always returns true - anti-enumeration, the server never leaks whether it matched.
+    RequestPasswordReset:   (identifier) => _c.RequestPasswordReset(identifier) === _OK,
+    // Complete the reset with the emailed code + new password.
+    CompletePasswordReset:  (code, new_password) => _c.CompletePasswordReset(code, new_password) === _OK,
 };
 
-/**
- * Round-trip latency to the auth server in milliseconds; -1 if unreachable.
- * Useful for pre-flight health checks before showing a login UI.
- */
-function ping() {
-    ensureBound();
-    return fns.Ping();
-}
 
-// -- Network namespace — mirrors Atlas::Network:: ----------------------------
-const network = {
-    checkAuthentication,
-    banUser,
-    submitLog,
-    changePassword,
-    download,
-    ping,
+// -- Network -------------------------------------------------------------
+// Direct server RPCs on the current session.
+
+Atlas.Network = {
+    // Poll the server to confirm the current session is still valid.
+    CheckAuthentication: () => _c.CheckAuthentication() === _OK,
+    // Ban the current user from your app. duration_minutes = 0 -> permanent.
+    BanUser:             (reason, duration_minutes = 0) => _c.BanUser(reason, duration_minutes) === _OK,
+    // Emit a custom log line (max 512 chars) to the dashboard's Logs tab.
+    SubmitLog:           (text) => _c.SubmitLog(text) === _OK,
+    // Change the current account's password.
+    ChangePassword:      (old_password, new_password) => _c.ChangePassword(old_password, new_password) === _OK,
+    // Round-trip latency to the auth server in ms, or -1 if unreachable.
+    Ping:                () => _c.Ping(),
 };
 
-// -- metadata ----------------------------------------------------------------
 
-/** DLL surface semver — reads once, caches. */
-function version() {
-    ensureBound();
-    return dllVersion;
-}
+// -- Data ----------------------------------------------------------------
+// Read-only session accessors. Populated after a successful sign-in.
 
-/**
- * Runtime environment snapshot — useful for support tickets. Contains only
- * host info; no license key, no HWID, no PII.
- */
-function envInfo() {
-    ensureBound();
-    let resolvedApphash = '';
-    try { resolvedApphash = getResolvedAppHash(); } catch { /* pre-init or unreadable */ }
-    return {
-        bindingVersion: BINDING_VERSION,
-        dllVersion: dllVersion,
-        dllHost: fns.IsDllHost() === 1,
-        apphashSetByCaller: apphashSetByCaller,
-        resolvedApphash: resolvedApphash,
-        node: process.version,
-        arch: process.arch,
-        platform: process.platform,
-        osRelease: os.release(),
-    };
-}
+Atlas.Data = {
+    // Authentication Data
+    GetLicense:         () => _str(_c.GetLicense),
+    GetUsername:        () => _str(_c.GetUsername),
+    GetEmail:           () => _str(_c.GetEmail),
+    GetPassword:        () => _str(_c.GetPassword),
+    GetIP:              () => _str(_c.GetIP),
+    GetHWID:            () => _str(_c.GetHWID),
+    GetDevice:          () => _str(_c.GetDevice),
+    GetNote:            () => _str(_c.GetNote),
+    GetFirstSeenDate:   () => _str(_c.GetFirstSeenDate),
+    GetLastSeenDate:    () => _str(_c.GetLastSeenDate),
+    GetUserId:          () => _c.GetUserId(),
+    GetLevel:           () => _c.GetLevel(),
 
-module.exports = {
-    init,
-    setQuiet,
-    setApiKey,
-    setAppHash:         setAppHashPublic,
-    setAppHashPath:     setAppHashPathPublic,
-    setAppHashFromFile: setAppHashFromFilePublic,
-    getResolvedAppHash,
-    startup,
-    login,
-    register,
-    redeem,     // top-level shortcut for the current session's account
-    exit,
-    logout,
-    data,
-    network,
-    account,
-    version,
-    envInfo,
-    Status,
-    AtlasError,
-    // Auto-updater — opt-in only, dev machines only. See docs/AutoUpdate.md
-    // for the security model. Mirrors AtlasUpdater.h's behavior for JS.
-    enableAutoUpdate:  updater.enableAutoUpdate,
-    disableAutoUpdate: updater.disableAutoUpdate,
-    autoUpdateStatus:  updater.status,
+    // Expiry
+    GetExpiry:          () => _str(_c.GetExpiry),
+    GetDaysRemaining:   () => _c.GetDaysRemaining(),
+    IsLifetime:         () => _c.IsLifetime() !== 0,
+    IsExpiringSoon:     (days_threshold = 7) => _c.IsExpiringSoon(days_threshold) !== 0,
+
+    // Authentication Verdicts
+    IsAuthenticated:    () => _c.IsAuthenticated() !== 0,
+    IsBanned:           () => _c.IsBanned() !== 0,
+
+    // Global Application Stats
+    GetActiveUserCount: () => _str(_c.GetActiveUserCount),
+    GetUserCount:       () => _str(_c.GetUserCount),
+
+    // Atlas Errors
+    GetErrorMessage:    () => _str(_c.GetErrorMessage),
+    ClearError:         () => _c.ClearError(),
+    HasError:           () => _c.HasError() !== 0,
 };
+
+
+// -- Variables -----------------------------------------------------------
+// Read-only key/value store you configure on the dashboard.
+
+Atlas.Variables = {
+    Fetch: (key) => {
+        const kb = Buffer.from(key + '\0', 'utf8');
+        const n = _c.VariableFetch(kb, null, 0);
+        if (n <= 0) return '';
+        const buf = Buffer.alloc(n);
+        _c.VariableFetch(kb, buf, n);
+        const end = buf.indexOf(0);
+        return buf.slice(0, end < 0 ? buf.length : end).toString('utf8');
+    },
+    FetchBool: (key) => _c.VariableFetchBool(key) !== 0,
+    FetchInt:  (key) => _c.VariableFetchInt(key),
+};
+
+
+// -- Webhook -------------------------------------------------------------
+// Fire-and-forget HTTP POSTs (Discord, Slack, custom). Unrelated to Atlas auth.
+
+Atlas.Webhook = {
+    // Plaintext Discord webhook message.
+    SendDiscord:      (webhook_url, message) => _c.WebhookSendDiscord(webhook_url, message) === _OK,
+    // Discord embed. color is 0xRRGGBB.
+    SendDiscordEmbed: (webhook_url, title, description, color = 0x3498db) =>
+                          _c.WebhookSendDiscordEmbed(webhook_url, title, description, color) === _OK,
+    // POST an arbitrary JSON payload - Slack, custom endpoints, telemetry.
+    Send:             (url, json_payload) => _c.WebhookSend(url, json_payload) === _OK,
+};
+
+module.exports = Atlas;
