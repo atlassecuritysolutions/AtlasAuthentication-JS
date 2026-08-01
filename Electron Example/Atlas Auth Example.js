@@ -1,28 +1,28 @@
-// ============================================================================
-// Electron main process — Atlas Authentication integration.
+// Atlas SDK — Electron example (main process).
 //
-// SECURITY MODEL:
-//   Atlas lives here (main process). It NEVER touches the renderer directly.
-//   The renderer runs contextIsolation: true / nodeIntegration: false /
-//   sandbox: true. It reaches Atlas ONLY through the narrow IPC surface
-//   below. Every sensitive handler must gate on Atlas.Data.IsAuthenticated().
+//   Dashboard: https://atlassecurity.site/dashboard
+//   Docs:      https://atlassecurity.site/docs
+//   Legal:     https://atlassecurity.site/legal
 //
-//   Even if the renderer HTML gets XSS'd, the attacker cannot load the DLL,
-//   cannot read the license, cannot leak the HWID, and cannot bypass the
-//   authenticated-gate.
+// Security model:
+//   Atlas lives in the main process and never touches the renderer directly.
+//   The renderer runs with contextIsolation: true, nodeIntegration: false,
+//   and sandbox: true. It reaches Atlas only through the narrow IPC surface
+//   below, and every sensitive handler must gate on Atlas.Data.IsAuthenticated().
 //
-//   Credentials NEVER cross the IPC boundary in either direction beyond the
-//   one call that submits them. When a register-with-email flow needs to
-//   resume sign-in after the confirmation code lands, the credentials are
-//   stashed in a main-process-only variable and never echoed back to the
-//   renderer.
-// ============================================================================
+//   Even if the renderer HTML is XSS'd, the attacker cannot load the DLL,
+//   read the license, leak the HWID, or bypass the authenticated gate.
+//
+//   Credentials cross the IPC boundary only in the single call that submits
+//   them. When a register-with-email flow needs to resume sign-in after the
+//   confirmation code lands, credentials stay in a main-process-only variable
+//   and are never echoed back to the renderer.
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const atlas = require('atlas-authentication');
 
-atlas.API_KEY = '894kO8WB5suGzk1KuLGoKsZyJPlnUEbYc3LYzZQq8axmgwFZ1rGBMnWzN6Wnjx8q';
+atlas.API_KEY = 'YOUR_API_KEY';
 
 let mainWindow = null;
 

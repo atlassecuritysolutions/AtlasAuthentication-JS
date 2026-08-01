@@ -1,7 +1,7 @@
 {
     "name": "atlas-auth-console-example",
     "version": "1.0.0",
-    "description": "Atlas Authentication - Node console example, packaged as a Windows .exe.",
+    "description": "Atlas SDK — Node console example, packageable as a Windows .exe.",
     "main": "Atlas Auth Example.js",
     "private": true,
     "bin": "Atlas Auth Example.js",
