@@ -2,8 +2,8 @@
   "name": "atlas-authentication-electron-example",
   "productName": "Atlas Auth Electron Example",
   "version": "1.0.0",
-  "description": "Atlas Authentication SDK - Electron desktop example. atlassecurity.site",
-  "main": "main.js",
+  "description": "Atlas SDK — Electron desktop example. https://atlassecurity.site",
+  "main": "Atlas Auth Example.js",
   "private": true,
   "scripts": {
     "start":     "electron .",

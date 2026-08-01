@@ -1,5 +1,9 @@
-// Atlas Authentication Library - Example Usage (Console)
-// Run as x64 Node >= 18 | Set your API key in atlas-authentication (Atlas.API_KEY)
+// Atlas SDK — Console example (Node.js).
+// Run under 64-bit Node >= 18. Set atlas.API_KEY = 'YOUR_API_KEY' below.
+//
+//   Dashboard: https://atlassecurity.site/dashboard
+//   Docs:      https://atlassecurity.site/docs
+//   Legal:     https://atlassecurity.site/legal
 
 const readline = require('readline');
 const atlas    = require('../Atlas SDK/src');

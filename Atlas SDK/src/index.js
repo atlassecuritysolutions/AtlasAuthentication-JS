@@ -1,15 +1,18 @@
-// Atlas authentication library.
-// Get your API key from atlassecurity.site/dashboard.
+// Atlas SDK — Node / Electron binding.
+//
+//   Dashboard: https://atlassecurity.site/dashboard
+//   Docs:      https://atlassecurity.site/docs
+//   Legal:     https://atlassecurity.site/legal
 //
 //   const atlas = require('atlas-authentication');
+//   atlas.API_KEY = 'YOUR_API_KEY';
 //   atlas.Startup();
 //   if (atlas.License.Login('license-key')) { /* signed in */ }
 //
-// Namespace layout - pick the right bucket for the job:
-//
-//   atlas.                       shared/session (Data, Network, Variables, Webhook)
-//   atlas.License.               license-key sign-in (headless)
-//   atlas.Account.               username+password + email flow (headless)
+// Namespaces:
+//   atlas.          session state, data, network, variables, webhooks
+//   atlas.License   license-key sign-in
+//   atlas.Account   username / password / email accounts
 
 const koffi = require('koffi');
 const path  = require('path');
@@ -108,10 +111,10 @@ const _c = {
 
 const Atlas = {
     // Your app's API key. Get it from atlassecurity.site/dashboard.
-    API_KEY: '894kO8WB5suGzk1KuLGoKsZyJPlnUEbYc3LYzZQq8axmgwFZ1rGBMnWzN6Wnjx8q',
+    API_KEY: 'YOUR_API_KEY',
 
 
-    // -- Session lifecycle ----------------------------------------------
+    // -- Session lifecycle ---------------------------------------------------
 
     // Initialise the library. Call once at the top of main().
     Startup() {
@@ -123,74 +126,113 @@ const Atlas = {
     // Terminate the session and clear all authentication state.
     Logout() { _c.Logout(); },
 
-    // Hard-kill the process via __fastfail. Uncatchable, no cleanup.
-    Exit() { _c.Exit(); },
+    // Kill the process the hardest way Windows allows. Unbypassable,
+    // uncatchable, no cleanup.
+    Exit()   { _c.Exit();   },
 };
 
 
 // -- License mode --------------------------------------------------------
-// Classic single-user, license-key auth. No email, no verify code.
+// Single-user, license-key auth. No email, no verification code.
 
 Atlas.License = {
+    // License-key sign-in.
     Login:     (license_key) => _c.Login(license_key) === _OK,
-    // Username + password sign-in for a license bound to one user (legacy USR mode).
-    // For the multi-user flow with email verify, use Atlas.Account.Login.
+
+    // Username + password sign-in for a license bound to one user.
+    // For accounts with email verification, use atlas.Account.Login.
     LoginUser: (username, password) => _c.LoginUser(username, password) === _OK,
-    // Bind a license key to a new username/password (legacy REG mode).
-    // Does NOT sign in on success - call LoginUser(u, p) after.
+
+    // Bind a license key to a new username/password.
+    // Does NOT sign in on success — call LoginUser(u, p) after.
     Register:  (license_key, username, password) => _c.Register(license_key, username, password) === _OK,
 };
 
 
 // -- Account mode --------------------------------------------------------
-// Multi-user (username / password / email) accounts with email verify,
-// password reset, and the redeem-a-key-onto-my-account flow.
+// Username / password / email accounts. Email verification, password reset,
+// and per-account key redemption.
 
 Atlas.Account = {
     Status: Object.freeze({
         Ok:                'Ok',
         WrongCredentials:  'WrongCredentials',
         NeedsVerification: 'NeedsVerification',
+        Banned:            'Banned',
+        AccountPaused:     'AccountPaused',
+        ServerUnreachable: 'ServerUnreachable',
         Error:             'Error',
     }),
 
     // Sign in with account credentials. Check result.status.
-    // On NeedsVerification the SDK holds the challenge - call SubmitVerification(code).
+    // On NeedsVerification the SDK holds the challenge — call SubmitVerification(code).
+    // On Ok, r.expiry / r.level / r.note are populated when the server sent them.
     Login(username, password) {
         const uid = [0];
         const rc = _c.LoginAccountEx(username, password, uid);
         const r = {
             status: 'Error', user_id: uid[0], error_message: '',
+            expiry: '', level: 1, note: '',
             masked_email: '', sign_in_ip: '', sign_in_country: '',
         };
-        if      (rc === _OK) r.status = 'Ok';
+        if      (rc === _OK) {
+            r.status = 'Ok';
+            r.expiry = _str(_c.GetExpiry);
+            r.level  = _c.GetLevel();
+            r.note   = _str(_c.GetNote);
+        }
         else if (rc === 10)  {
             r.status = 'NeedsVerification';
             r.masked_email    = _str(_c.GetLastVerifyMaskedEmail);
             r.sign_in_ip      = _str(_c.GetLastVerifyIP);
             r.sign_in_country = _str(_c.GetLastVerifyCountry);
         }
-        else if (rc === 3)   { r.status = 'WrongCredentials'; r.error_message = _str(_c.GetErrorMessage); }
-        else                 { r.status = 'Error';            r.error_message = _str(_c.GetErrorMessage); }
+        else if (rc === 3) {
+            // Server-side reason lives in the message text. The C ABI collapses
+            // WrongCredentials / Banned / AccountPaused into one code, so we
+            // route on the message; unknown text falls through to WrongCredentials
+            // (the common case).
+            const msg = _str(_c.GetErrorMessage);
+            r.error_message = msg;
+            const m = msg.toLowerCase();
+            if      (m.includes('banned'))                                   r.status = 'Banned';
+            else if (m.includes('paused') || m.includes('account paused'))   r.status = 'AccountPaused';
+            else                                                             r.status = 'WrongCredentials';
+        }
+        else if (rc === 7) {
+            r.status = 'ServerUnreachable';
+            r.error_message = _str(_c.GetErrorMessage);
+        }
+        else {
+            r.status = 'Error';
+            r.error_message = _str(_c.GetErrorMessage);
+        }
         return r;
     },
 
     // Create a standalone account. Email optional but needed for password reset.
     // Does NOT sign in. If email is set, account stays unverified until ConfirmEmail.
     Register:               (username, password, email = '') => _c.RegisterAccount(username, password, email) === _OK,
+
     // Submit the 8-digit code for the pending sign-in verify challenge.
     SubmitVerification:     (code) => _c.SubmitVerify(code) === _OK,
+
     // Resend the sign-in verification code (60s server-side cooldown).
     ResendVerification:     () => _c.ResendVerify() === _OK,
+
     // Confirm a newly-registered account's email with the emailed code.
     ConfirmEmail:           (code) => _c.ConfirmEmail(code) === _OK,
+
     // True while a registration email-confirm is pending.
     HasPendingEmailConfirm: () => _c.HasPendingEmailConfirm() !== 0,
+
     // Redeem a license key onto the currently signed-in account.
     Redeem:                 (license_key) => _c.RedeemKey(0, license_key) === _OK,
+
     // Start a password reset. identifier = username or email.
-    // Always returns true - anti-enumeration, the server never leaks whether it matched.
+    // Always returns true — anti-enumeration, the server never leaks whether it matched.
     RequestPasswordReset:   (identifier) => _c.RequestPasswordReset(identifier) === _OK,
+
     // Complete the reset with the emailed code + new password.
     CompletePasswordReset:  (code, new_password) => _c.CompletePasswordReset(code, new_password) === _OK,
 };
@@ -202,12 +244,16 @@ Atlas.Account = {
 Atlas.Network = {
     // Poll the server to confirm the current session is still valid.
     CheckAuthentication: () => _c.CheckAuthentication() === _OK,
-    // Ban the current user from your app. duration_minutes = 0 -> permanent.
+
+    // Ban the current user from your app. duration_minutes = 0 → permanent.
     BanUser:             (reason, duration_minutes = 0) => _c.BanUser(reason, duration_minutes) === _OK,
+
     // Emit a custom log line (max 512 chars) to the dashboard's Logs tab.
     SubmitLog:           (text) => _c.SubmitLog(text) === _OK,
+
     // Change the current account's password.
     ChangePassword:      (old_password, new_password) => _c.ChangePassword(old_password, new_password) === _OK,
+
     // Round-trip latency to the auth server in ms, or -1 if unreachable.
     Ping:                () => _c.Ping(),
 };
@@ -217,38 +263,38 @@ Atlas.Network = {
 // Read-only session accessors. Populated after a successful sign-in.
 
 Atlas.Data = {
-    // Authentication Data
-    GetLicense:         () => _str(_c.GetLicense),
-    GetUsername:        () => _str(_c.GetUsername),
-    GetEmail:           () => _str(_c.GetEmail),
-    GetPassword:        () => _str(_c.GetPassword),
-    GetIP:              () => _str(_c.GetIP),
-    GetHWID:            () => _str(_c.GetHWID),
-    GetDevice:          () => _str(_c.GetDevice),
-    GetNote:            () => _str(_c.GetNote),
-    GetFirstSeenDate:   () => _str(_c.GetFirstSeenDate),
-    GetLastSeenDate:    () => _str(_c.GetLastSeenDate),
-    GetUserId:          () => _c.GetUserId(),
-    GetLevel:           () => _c.GetLevel(),
+    // Identity
+    GetLicense:         () => _str(_c.GetLicense),          // License key the session opened with.
+    GetUsername:        () => _str(_c.GetUsername),         // Account username, "" on license-only sessions.
+    GetEmail:           () => _str(_c.GetEmail),            // Account email, "" if none / license-only.
+    GetPassword:        () => _str(_c.GetPassword),         // Password used at sign-in, "" on license-only.
+    GetIP:              () => _str(_c.GetIP),               // Server-detected client IP.
+    GetHWID:            () => _str(_c.GetHWID),             // Hardware fingerprint.
+    GetDevice:          () => _str(_c.GetDevice),           // ComputerName / Windows username.
+    GetNote:            () => _str(_c.GetNote),             // Admin-set note, "" if none.
+    GetFirstSeenDate:   () => _str(_c.GetFirstSeenDate),    // First-ever authentication timestamp.
+    GetLastSeenDate:    () => _str(_c.GetLastSeenDate),     // Most recent authentication timestamp.
+    GetUserId:          () => _c.GetUserId(),               // Account row id, 0 if signed out.
+    GetLevel:           () => _c.GetLevel(),                // Access level, 0 if unknown.
 
     // Expiry
-    GetExpiry:          () => _str(_c.GetExpiry),
-    GetDaysRemaining:   () => _c.GetDaysRemaining(),
-    IsLifetime:         () => _c.IsLifetime() !== 0,
-    IsExpiringSoon:     (days_threshold = 7) => _c.IsExpiringSoon(days_threshold) !== 0,
+    GetExpiry:          () => _str(_c.GetExpiry),                                       // "DD-MM-YYYY HH:MM:SS" or "Lifetime".
+    GetDaysRemaining:   () => _c.GetDaysRemaining(),                                    // -1 = lifetime, 0 = expired.
+    IsLifetime:         () => _c.IsLifetime() !== 0,                                    // True if the license never expires.
+    IsExpiringSoon:     (days_threshold = 7) => _c.IsExpiringSoon(days_threshold) !== 0, // True if expiring within days_threshold.
 
-    // Authentication Verdicts
-    IsAuthenticated:    () => _c.IsAuthenticated() !== 0,
-    IsBanned:           () => _c.IsBanned() !== 0,
+    // Status
+    IsAuthenticated:    () => _c.IsAuthenticated() !== 0,   // True if a live session is open.
+    IsBanned:           () => _c.IsBanned() !== 0,          // True if the current user is banned.
 
-    // Global Application Stats
-    GetActiveUserCount: () => _str(_c.GetActiveUserCount),
-    GetUserCount:       () => _str(_c.GetUserCount),
+    // App-wide stats
+    GetActiveUserCount: () => _str(_c.GetActiveUserCount),  // Users currently authenticated app-wide.
+    GetUserCount:       () => _str(_c.GetUserCount),        // Total registered users.
 
-    // Atlas Errors
-    GetErrorMessage:    () => _str(_c.GetErrorMessage),
-    ClearError:         () => _c.ClearError(),
-    HasError:           () => _c.HasError() !== 0,
+    // Errors
+    GetErrorMessage:    () => _str(_c.GetErrorMessage),     // Last error message, "" if none.
+    ClearError:         () => _c.ClearError(),              // Reset the error state.
+    HasError:           () => _c.HasError() !== 0,          // True if the last call set an error.
 };
 
 
@@ -256,6 +302,7 @@ Atlas.Data = {
 // Read-only key/value store you configure on the dashboard.
 
 Atlas.Variables = {
+    // "" if the key doesn't exist.
     Fetch: (key) => {
         const kb = Buffer.from(key + '\0', 'utf8');
         const n = _c.VariableFetch(kb, null, 0);
@@ -265,8 +312,8 @@ Atlas.Variables = {
         const end = buf.indexOf(0);
         return buf.slice(0, end < 0 ? buf.length : end).toString('utf8');
     },
-    FetchBool: (key) => _c.VariableFetchBool(key) !== 0,
-    FetchInt:  (key) => _c.VariableFetchInt(key),
+    FetchBool: (key) => _c.VariableFetchBool(key) !== 0,    // "true" / "1" / "yes" → true; else false.
+    FetchInt:  (key) => _c.VariableFetchInt(key),           // 0 if missing or unparseable.
 };
 
 
@@ -276,10 +323,12 @@ Atlas.Variables = {
 Atlas.Webhook = {
     // Plaintext Discord webhook message.
     SendDiscord:      (webhook_url, message) => _c.WebhookSendDiscord(webhook_url, message) === _OK,
+
     // Discord embed. color is 0xRRGGBB.
     SendDiscordEmbed: (webhook_url, title, description, color = 0x3498db) =>
                           _c.WebhookSendDiscordEmbed(webhook_url, title, description, color) === _OK,
-    // POST an arbitrary JSON payload - Slack, custom endpoints, telemetry.
+
+    // POST an arbitrary JSON payload — Slack, custom endpoints, telemetry.
     Send:             (url, json_payload) => _c.WebhookSend(url, json_payload) === _OK,
 };
 
