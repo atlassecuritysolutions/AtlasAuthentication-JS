@@ -376,7 +376,7 @@ Each entry in `logs\` is a complete record of one event:
 
 ```
 [Atlas Exit Report]
-Time:   2026-08-02 8:08:50
+Time:   2026-08-02 8:20:50
 Reason: CheckAuthentication: not authenticated or no session
 File:   Atlas Auth.cpp
 Line:   2258
@@ -402,18 +402,23 @@ The DLL's source isn't distributed with this repo. If you need a custom build or
 
 ## Legal
 
-© 2025–2026 Atlas Security Solutions. All rights reserved. Sold by Atlas Security Solutions, Jeddah, Kingdom of Saudi Arabia.
+© 2025–2026 Atlas Security Solutions. All rights reserved.
+Sold by Atlas Security Solutions — Jeddah, Kingdom of Saudi Arabia.
 
-This SDK exists so developers can integrate Atlas Authentication into their software. If that's you, use it freely.
+This SDK is licensed, not sold, for one purpose: integrating Atlas Authentication into your own software. That is the entire grant. Nothing here implies any broader right.
 
-**Prohibited without explicit written authorization:**
-- Reverse engineering, decompiling, disassembling, or reconstructing Atlas binaries, protocols, or server infrastructure
-- Tampering with, bypassing, or disabling any authentication or anti-tamper control
-- Probing or interfering with Atlas servers or databases
-- Using knowledge of Atlas internals to build competing platforms or bypass tools
+**Not permitted, under any circumstance, without Atlas's prior written consent:**
+- Reverse engineering, decompiling, disassembling, or otherwise deriving source code, protocols, or algorithms from Atlas binaries, clients, or infrastructure
+- Circumventing, disabling, or interfering with any authentication or anti-tamper mechanism
+- Accessing, probing, or testing Atlas servers, databases, or infrastructure outside normal SDK operation
+- Using knowledge of Atlas internals to build, assist, or distribute a competing product or a bypass tool
 
-Enforcement: Saudi Arabia Anti-Cybercrime Law (Royal Decree M/17, 1428H, Articles 3–4); U.S. Computer Fraud and Abuse Act (18 U.S.C. § 1030); EU Directive 2013/40/EU; WIPO / TRIPS (180+ signatory nations).
+A violation terminates this license the moment it occurs. No warning. No cure period.
 
-Atlas monitors for unauthorized access, reverse engineering, and protocol analysis. Violations are met with civil action, referral to competent authorities, and pursuit of all available remedies — injunctive relief, asset recovery, and cross-jurisdiction enforcement — without prior notice.
+This agreement is governed by the laws of the Kingdom of Saudi Arabia, including the Anti-Cyber Crime Law (Royal Decree No. M/17, 1428H), Articles 3 and 5. Unauthorized access to Atlas infrastructure is independently a criminal matter in most jurisdictions Atlas operates in, including under the U.S. Computer Fraud and Abuse Act (18 U.S.C. § 1030) and EU Directive 2013/40/EU. Atlas is not confined to one jurisdiction's remedies and will pursue violators wherever they are found.
 
-Permission requests and inquiries: [mail@atlassecurity.site](mailto:mail@atlassecurity.site) · [atlassecurity.site/legal](https://atlassecurity.site/legal)
+Atlas monitors for unauthorized access and reverse-engineering activity as a matter of course. Confirmed violations are referred for civil action, criminal referral where warranted, and pursuit of injunctive relief, damages, and cross-border enforcement — without prior notice.
+
+All rights not expressly granted are reserved.
+
+Authorized inquiries only: [mail@atlassecurity.site](mailto:mail@atlassecurity.site) · [atlassecurity.site/legal](https://atlassecurity.site/legal)
