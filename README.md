@@ -345,18 +345,17 @@ The API key is a **routing identifier** — it tells the server which dashboard 
 
 ## Troubleshooting
 
-**`koffi: Failed to load Atlas.dll`** — confirm `Atlas SDK/Atlas.dll` exists; set `ATLAS_DLL_PATH` explicitly to a fully-qualified path; in a packaged Electron app, check that `extraResources` copied `Atlas.dll` into `process.resourcesPath`.
+**`koffi: Failed to load Atlas.dll`** — `Atlas.dll` couldn't be loaded. Verify it exists in `Atlas SDK/`, or set `ATLAS_DLL_PATH`. For packaged Electron applications, confirm `extraResources` copied the DLL into `process.resourcesPath`.
 
-**Node process silently exits on `Startup()`** — an integrity check tripped the kill path. Dashboard **Logs** shows the reason. Common causes: API key still `'YOUR_API_KEY'`; API key belongs to a deleted app; a debugger is attached (VS Code JS debugger, Chrome DevTools inspector, `--inspect`) — Electron renderer DevTools is fine, the main-process inspector is what Atlas refuses.
+**Application exits during `Startup()`** — Atlas terminated the process after an integrity check failed. Verify `Atlas.API_KEY` is set correctly, the application still exists in the dashboard, and the main process isn't running under a debugger (`--inspect`, VS Code JS debugger, Chrome DevTools inspector). Renderer DevTools are supported. See **Dashboard → Logs** for the exact failure reason.
 
-**`Login()` returns `false`, "Executable hash mismatch"** — you whitelisted a hash and then rebuilt. Update the whitelist, or don't whitelist during active development.
+**`Login()` returns `false`** — call `Atlas.GetErrorMessage()` to determine the failure. Common causes include an executable hash mismatch (after rebuilding), an expired or banned license, a banned HWID, or invalid credentials.
 
-**`Login()` returns `false`, "License banned" / "HWID banned"** — check **Bans** in the dashboard.
+**Packaged Electron application exits immediately** — verify `Atlas.dll` is bundled into `process.resourcesPath`, and if executable whitelisting is enabled, confirm the packaged executable matches the application's configured hash.
 
-**Packaged Electron app quits immediately** — almost always: `Atlas.dll` isn't in `process.resourcesPath` (check `extraResources`), or the apphash is auto-detecting `Electron.exe` because `app.asar` isn't where the SDK expected. Log the resolved DLL path and apphash on startup for a quick diagnosis.
+**`Atlas SDK is Windows-only`** — expected. Atlas supports native Windows x64 applications only. WSL, Docker, macOS, and Linux aren't supported.
 
-**`Atlas SDK is Windows-only` at `require()`** — correct. Atlas is Windows x64 by product design. Use a native Windows Node install (no WSL, Docker, macOS, Linux).
-
+Please! view the when you have any runtime troubles [Atlas Diagnostic Logs](#diagnostic-logs)
 Full FAQ: [atlassecurity.site/docs](https://atlassecurity.site/docs).
 
 ---
@@ -376,7 +375,7 @@ Each entry in `logs\` is a complete record of one event:
 
 ```
 [Atlas Exit Report]
-Time:   2026-08-02 8:20:50
+Time:   2026-08-02 8:38:50
 Reason: CheckAuthentication: not authenticated or no session
 File:   Atlas Auth.cpp
 Line:   2258
