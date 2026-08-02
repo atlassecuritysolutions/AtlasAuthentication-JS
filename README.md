@@ -13,8 +13,6 @@ atlas.Startup();
 atlas.License.Login(key);
 ```
 
-This repo contains the prebuilt DLL, the Node binding with TypeScript typings, and two runnable examples — a console example and a sandboxed Electron example.
-
 ---
 
 ## Contents
@@ -177,7 +175,7 @@ The build script uses `electron-packager` and copies `Atlas.dll` into the resour
    ```js
    const atlas = require('./vendor/atlas/Atlas SDK/src');
 
-   atlas.API_KEY = 'your-key';
+   atlas.API_KEY = 'YOUR_API_KEY';
    atlas.Startup();
 
    const key = promptUserForLicense();
