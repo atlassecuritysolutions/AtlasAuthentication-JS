@@ -34,6 +34,7 @@ atlas.License.Login(key);
 - [What Login starts](#what-login-starts)
 - [The API-key model](#the-api-key-model)
 - [Troubleshooting](#troubleshooting)
+- [IMPORANT - Atlas Diagnostic Logs](#diagnostic-logs)
 - [Support](#support)
 - [Legal](#legal)
 
@@ -53,12 +54,10 @@ JS Integration/
 │       ├── index.js                   the binding — mirrors the C++ namespace 1:1
 │       └── index.d.ts                 TypeScript typings
 ├── Console Example/                   Node CLI — license, account, and register paths
-├── Electron Example/                  main / preload / renderer
-└── dev-tools/
-    └── test.js                        smoke suite for the binding
+└── Electron Example/                  main / preload / renderer / blah blah we hate 
 ```
 
-`Atlas.dll` is prebuilt and versioned with the release. You don't rebuild the SDK to use it.
+`Atlas.dll` is prebuilt and versioned with the release. You don't rebuild the SDK to use it. The Atlas SDK source code is private.
 
 ---
 
@@ -71,14 +70,14 @@ JS Integration/
 | npm | Bundled with Node — installs `koffi` and (for Electron) `electron`. |
 | An Atlas account | [atlassecurity.site](https://atlassecurity.site) — free. |
 
-`koffi` is the only runtime dependency — a modern C ABI binding for Node with prebuilt x64 Windows binaries. No `node-gyp`, no MSVC build.
+`koffi` is the only runtime dependency — a modern C ABI binding for Node with prebuilt x64 Windows binaries. No `node-gyp` etc.
 
 ---
 
 ## Get an account, an app, a license
 
 1. Sign up at [atlassecurity.site](https://atlassecurity.site), verify your email.
-2. **Applications → New application** — name it whatever; users never see it. Copy the **API key** it hands you.
+2. **Applications → New application** — name it as you like, this will be often shown to end users in MessageBoxes or Emails, Copy the **API key** it hands you.
 3. **Licenses → Generate** — pick a duration (Weekly / Monthly / Lifetime / custom), a level (`1` for basic, `2+` for tiered), and optionally a note. Copy the key.
 4. *(Optional, for the account flow)* **Applications → Account policy** — choose when verification codes fire (never / first login / every N / once per day / new HWID / new HWID or IP / always). Toggle "email required at registration" if you want to force email addresses.
 
@@ -316,20 +315,22 @@ atlas.Webhook.Send(url, json_payload);
 
 ## What Login starts
 
-On success, `Login` starts background threads inside `Atlas.dll`. You don't manage any of them directly — they run until `Logout()`, `Exit()`, or a failed check terminates the process.
+`Login` doesn't end at the handshake. From that point forward, every assumption gets re-verified for the entire life of the session — nothing is trusted just because it was true a moment ago. This is zero trust applied to the client itself, not just the connection.
 
-- **Every 5 seconds** — a heartbeat signed with a per-session HMAC key, sequence-numbered, echoing the server's newest challenge nonce. The server can push messages, kick the session, or terminate the process in its reply.
-- **Every 15 seconds** — a deep sweep: `.text` CRC compared against the startup snapshot, full IAT check against the resolved-imports snapshot.
-- **Before every heartbeat** — the first bytes of `ws2_32.recv` / `send` / `connect` are inspected for hook signatures. A hooked network function is the standard foundation for a man-in-the-middle on the auth channel, so the SDK terminates before any data crosses it.
-- **Continuously** — the executable's page map is compared against the post-login snapshot; PEB, `NtQueryInformationProcess`, `DR0`–`DR7`, and VEH debugger checks run; two independent threads verify each other's liveness through hardware performance counters.
+- **The server re-authenticates the session continuously, not once.** Every check the client passed at login runs again, on a loop, for as long as the process is alive. Passing once buys you nothing later — you keep proving it.
+- **Every message between client and server is signed, fresh, and single-use.** Nothing is replayable. A captured request, however perfectly captured, is worthless the moment it's reused.
+- **The server holds full control over every live session, in real time.** It can end, message, or re-verify any session on demand — the client has no ability to resist, delay, or negotiate.
+- **The binary and its runtime state are continuously verified against what was there at login.** Any modification, any injected code, any external interference with the running process is treated as a compromise — not logged, not flagged, acted on.
+- **Detection never announces itself.** No dialog, no error, no exception, nothing to hook or intercept. The response to a failed check is the process ending — not a message telling an attacker what they tripped.
+- **Nothing static ever sits in the client waiting to be stolen.** No reusable secret, no long-lived token, no single value that unlocks the next session if it leaks.
 
-Any failure terminates the process at kernel level. There is no dialog, no exception you can catch, no signal you can hook.
+This is the actual model: authentication isn't a gate the client passes through once. It's a relationship the server keeps re-verifying, continuously, until the session ends — on the server's terms, not the client's.
 
 ---
 
 ## The API-key model
 
-The API key is a **routing identifier** — it tells the server which dashboard account a request belongs to. It is not what authenticates a request. That rests on:
+The API key is a **routing identifier** — it tells the server which dashboard account and application a request belongs to. It is not what authenticates a request. That rests on:
 
 1. An X25519 handshake, deriving a fresh HMAC key per session.
 2. The Ed25519 signature the server places on its handshake reply, verified against three keys pinned inside `Atlas.dll` (primary, backup, emergency). A nulled server can't produce these signatures.
@@ -339,8 +340,6 @@ The API key is a **routing identifier** — it tells the server which dashboard 
 
 > [!IMPORTANT]
 > A leaked API key alone doesn't let an attacker impersonate a user — but treat it as sensitive. Rotate it on suspected exposure (**Settings → Reset API Key**) and keep it out of public source.
-
-In Electron and packaged Node apps, never hardcode the API key in the renderer. Set it in the main process from a signed remote config, or from an env var the packaged exe reads at startup.
 
 ---
 
@@ -362,6 +361,31 @@ Full FAQ: [atlassecurity.site/docs](https://atlassecurity.site/docs).
 
 ---
 
+## Diagnostic logs
+
+> [!IMPORTANT]
+> Every session-ending event — a failed integrity check, a lost connection, a server-issued end to the session — is written to disk the moment it occurs, with the exact cause, source file, and line. The `logs\` folder itself always exists, on every machine running an Atlas-built application, end users included.
+
+Press **`Win + R`**, paste:
+
+```
+%LOCALAPPDATA%\AtlasAuth
+```
+
+Each entry in `logs\` is a complete record of one event:
+
+```
+[Atlas Exit Report]
+Time:   2026-08-02 8:08:50
+Reason: CheckAuthentication: not authenticated or no session
+File:   Atlas Auth.cpp
+Line:   2258
+```
+
+> [!NOTE]
+> The rest of `%LOCALAPPDATA%\AtlasAuth` — `installed.flag`, `declined.flag`, `commit.sha`, `manage_autoupdate.bat` — is dev-only. Those files exist to drive the MSBuild auto-update hook and only appear when a dev environment (Visual Studio, VS Code, MSBuild, JetBrains, and similar) is detected. `logs\` is the only part of this folder your end users will ever have. Always remember to check this folder to diagnose any issues, it is your #1 GOTO!
+
+---
 ## Support
 
 - **Docs** — [atlassecurity.site/docs](https://atlassecurity.site/docs)
