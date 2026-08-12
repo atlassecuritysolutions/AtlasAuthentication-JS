@@ -1,7 +1,7 @@
 {
     "name":  "atlas-authentication",
-    "version":  "1.0.0",
-    "description":  "Atlas SDK — Node.js binding for Atlas.dll (Windows x64).",
+    "version":  "1.0.1",
+    "description":  "Atlas SDK - Node.js binding for Atlas.dll (Windows x64).",
     "main":  "src/index.js",
     "types":  "src/index.d.ts",
     "os":  [
@@ -12,6 +12,9 @@
             ],
     "engines":  {
                     "node":  "\u003e=18"
+                },
+    "scripts":  {
+                    "postinstall":  "node postinstall.js"
                 },
     "dependencies":  {
                          "koffi":  "^2.9.0"
@@ -34,6 +37,7 @@
     "files":  [
                   "src/",
                   "Atlas.dll",
-                  "Atlas.dll.sig"
+                  "Atlas.dll.sig",
+                  "postinstall.js"
               ]
 }

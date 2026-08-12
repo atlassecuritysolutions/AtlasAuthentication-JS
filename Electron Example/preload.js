@@ -6,7 +6,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('atlas', {
-    // Unified auth call — the renderer sends { mode, license?, username?, password?, email? }
+    // Unified auth call - the renderer sends { mode, license?, username?, password?, email? }
     // and the main process routes to License::Login / Account::Login / Account::Register.
     // On an account flow that needs a code, main returns { needsVerify: 'signin' | 'register' }
     // and the renderer opens its inline code prompt, then calls verifySubmit(code, kind).

@@ -1,4 +1,4 @@
-// Atlas SDK — Node / Electron binding.
+// Atlas SDK - Node / Electron binding.
 //
 //   Dashboard: https://atlassecurity.site/dashboard
 //   Docs:      https://atlassecurity.site/docs
@@ -17,18 +17,56 @@
 const koffi = require('koffi');
 const path  = require('path');
 const fs    = require('fs');
+const os    = require('os');
+const crypto = require('crypto');
 
-// Load Atlas.dll from disk. Packaged apps (pkg / Electron) ship the DLL
-// beside the exe or under resources/; dev checkouts ship it next to this
-// file. Probed in that order. Env override wins.
+// Resolve Atlas.dll. Single-file distribution: pkg bundles the DLL into
+// the snapshot, we extract it to a unique temp path, load it, and clean
+// up on exit. Env override wins; dev checkouts still find it next to
+// this file.
 const _dllPath = (() => {
-    if (process.env.ATLAS_DLL_PATH) return process.env.ATLAS_DLL_PATH;
-    const tries = [];
-    if (process.resourcesPath) tries.push(path.resolve(process.resourcesPath, 'Atlas.dll'));
-    tries.push(path.resolve(path.dirname(process.execPath), 'Atlas.dll'));
-    tries.push(path.resolve(__dirname, '..', 'Atlas.dll'));
-    for (const p of tries) { try { fs.accessSync(p); return p; } catch {} }
-    return tries[tries.length - 1];
+    if (process.env.ATLAS_DLL_PATH) {
+        try { fs.accessSync(process.env.ATLAS_DLL_PATH); return process.env.ATLAS_DLL_PATH; } catch {}
+    }
+
+    // Detect pkg snapshotted runtime. Inside pkg, every fs.* call against
+    // a snapshot path returns data from the embedded VFS - including
+    // fs.accessSync. So we must read the bytes and stage to %TEMP%
+    // ourselves; we cannot just hand the virtual path to koffi.
+    const _isPkg = !!(process.pkg && process.pkg.entrypoint);
+
+    if (!_isPkg) {
+        const candidates = [];
+        if (process.resourcesPath) candidates.push(path.resolve(process.resourcesPath, 'Atlas.dll'));
+        candidates.push(path.resolve(path.dirname(process.execPath), 'Atlas.dll'));
+        candidates.push(path.resolve(__dirname, '..', 'Atlas.dll'));
+        for (const p of candidates) { try { fs.accessSync(p); return p; } catch {} }
+        throw new Error('Atlas.dll not found. Set ATLAS_DLL_PATH or place it beside the .exe.');
+    }
+
+    // Bundled inside pkg snapshot - read the asset as raw bytes. pkg
+    // stores non-JS assets in the snapshot VFS; fs.readFileSync returns
+    // a Buffer against the virtual snapshot path.
+    const bundledPath = path.join(path.resolve(__dirname, '..'), 'Atlas.dll');
+    let bundled = null;
+    try { bundled = fs.readFileSync(bundledPath); } catch (e) {
+        throw new Error('Atlas.dll snapshot read failed at ' + bundledPath + ': ' + e.message);
+    }
+    if (!bundled || !Buffer.isBuffer(bundled) || bundled.length === 0) {
+        throw new Error('Atlas.dll not found in pkg snapshot.');
+    }
+    const stamp  = crypto.randomBytes(6).toString('hex');
+    const outDir = path.join(os.tmpdir(), 'atlas-sdk');
+    fs.mkdirSync(outDir, { recursive: true });
+    const outPath = path.join(outDir, `Atlas-${process.pid}-${stamp}.dll`);
+    fs.writeFileSync(outPath, bundled, { mode: 0o600 });
+    if (!fs.existsSync(outPath)) throw new Error('Atlas.dll temp write failed: ' + outPath);
+    if (fs.statSync(outPath).size !== bundled.length) throw new Error('Atlas.dll temp size mismatch: ' + outPath);
+    const cleanup = () => { try { fs.unlinkSync(outPath); } catch {} };
+    process.once('exit',  cleanup);
+    process.once('SIGINT', () => { cleanup(); process.exit(130); });
+    process.once('SIGTERM',() => { cleanup(); process.exit(143); });
+    return outPath;
 })();
 const _lib = koffi.load(_dllPath);
 
@@ -111,7 +149,7 @@ const _c = {
 
 const Atlas = {
     // Your app's API key. Get it from atlassecurity.site/dashboard.
-    API_KEY: 'YOUR_API_KEY',
+    API_KEY: '894kO8WB5suGzk1KuLGoKsZyJPlnUEbYc3LYzZQq8axmgwFZ1rGBMnWzN6Wnjx8q',
 
 
     // -- Session lifecycle ---------------------------------------------------
@@ -144,7 +182,7 @@ Atlas.License = {
     LoginUser: (username, password) => _c.LoginUser(username, password) === _OK,
 
     // Bind a license key to a new username/password.
-    // Does NOT sign in on success — call LoginUser(u, p) after.
+    // Does NOT sign in on success - call LoginUser(u, p) after.
     Register:  (license_key, username, password) => _c.Register(license_key, username, password) === _OK,
 };
 
@@ -165,7 +203,7 @@ Atlas.Account = {
     }),
 
     // Sign in with account credentials. Check result.status.
-    // On NeedsVerification the SDK holds the challenge — call SubmitVerification(code).
+    // On NeedsVerification the SDK holds the challenge - call SubmitVerification(code).
     // On Ok, r.expiry / r.level / r.note are populated when the server sent them.
     Login(username, password) {
         const uid = [0];
@@ -230,7 +268,7 @@ Atlas.Account = {
     Redeem:                 (license_key) => _c.RedeemKey(0, license_key) === _OK,
 
     // Start a password reset. identifier = username or email.
-    // Always returns true — anti-enumeration, the server never leaks whether it matched.
+    // Always returns true - anti-enumeration, the server never leaks whether it matched.
     RequestPasswordReset:   (identifier) => _c.RequestPasswordReset(identifier) === _OK,
 
     // Complete the reset with the emailed code + new password.
@@ -328,7 +366,7 @@ Atlas.Webhook = {
     SendDiscordEmbed: (webhook_url, title, description, color = 0x3498db) =>
                           _c.WebhookSendDiscordEmbed(webhook_url, title, description, color) === _OK,
 
-    // POST an arbitrary JSON payload — Slack, custom endpoints, telemetry.
+    // POST an arbitrary JSON payload - Slack, custom endpoints, telemetry.
     Send:             (url, json_payload) => _c.WebhookSend(url, json_payload) === _OK,
 };
 

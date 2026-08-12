@@ -1,4 +1,4 @@
-// Atlas SDK — Electron example (main process).
+// Atlas SDK - Electron example (main process).
 //
 //   Dashboard: https://atlassecurity.site/dashboard
 //   Docs:      https://atlassecurity.site/docs
@@ -79,7 +79,7 @@ function takeRegistration() {
     return p;
 }
 
-// -- IPC surface — narrow on purpose -----------------------------------------
+// -- IPC surface - narrow on purpose -----------------------------------------
 
 function sessionSnapshot() {
     return {
