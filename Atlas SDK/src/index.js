@@ -149,7 +149,7 @@ const _c = {
 
 const Atlas = {
     // Your app's API key. Get it from atlassecurity.site/dashboard.
-    API_KEY: '894kO8WB5suGzk1KuLGoKsZyJPlnUEbYc3LYzZQq8axmgwFZ1rGBMnWzN6Wnjx8q',
+    API_KEY: 'YOUR_API_KEY',
 
 
     // -- Session lifecycle ---------------------------------------------------
