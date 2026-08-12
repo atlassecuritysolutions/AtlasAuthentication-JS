@@ -181,7 +181,7 @@
         }
         input::placeholder { color: var(--faint); }
 
-        /* Code input — tabular digits, wider tracking */
+        /* Code input - tabular digits, wider tracking */
         input.code {
             font-family: var(--font-mono);
             font-size: 20px;
@@ -493,7 +493,7 @@
             <button id="submit" class="primary" type="submit">Authenticate</button>
         </form>
 
-        <!-- Verify screen — one 8-digit code input, same shape for sign-in
+        <!-- Verify screen - one 8-digit code input, same shape for sign-in
              verify + register confirm; kind is decided by the main process. -->
         <form id="verify-form" class="hidden" autocomplete="off" spellcheck="false">
             <div class="field">
@@ -704,12 +704,12 @@
         const rows = [];
         if (data.username) rows.push(['Username', data.username]);
         rows.push(
-            ['License', data.license ? maskLicense(data.license) : '—'],
+            ['License', data.license ? maskLicense(data.license) : '-'],
             ['Level',   String(data.level ?? 0)],
-            ['Expiry',  data.expiry     || '—'],
-            ['HWID',    data.hwid       || '—'],
-            ['IP',      data.ip         || '—'],
-            ['Note',    data.note       || '—'],
+            ['Expiry',  data.expiry     || '-'],
+            ['HWID',    data.hwid       || '-'],
+            ['IP',      data.ip         || '-'],
+            ['Note',    data.note       || '-'],
         );
         for (const [k, v] of rows) {
             const dt = document.createElement('dt'); dt.textContent = k;

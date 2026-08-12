@@ -26,7 +26,7 @@ export interface AccountLoginResult {
     level: number;
     /** Admin-set note, "" if none. Populated on 'Ok'. */
     note: string;
-    /** e.g. `s***i@gmail.com` — for the "we sent a code to X" UI. Populated on 'NeedsVerification'. */
+    /** e.g. `s***i@gmail.com` - for the "we sent a code to X" UI. Populated on 'NeedsVerification'. */
     masked_email: string;
     /** IP the server saw for the sign-in attempt. Populated on 'NeedsVerification'. */
     sign_in_ip: string;
@@ -41,7 +41,7 @@ export interface AtlasLicense {
      *  For accounts with email verification, use `atlas.Account.Login`. */
     LoginUser(username: string, password: string): boolean;
     /** Bind a license key to a new username/password.
-     *  Does NOT sign in on success — call `LoginUser` after. */
+     *  Does NOT sign in on success - call `LoginUser` after. */
     Register(license_key: string, username: string, password: string): boolean;
 }
 
@@ -56,7 +56,7 @@ export interface AtlasAccount {
         Error: 'Error';
     }>;
     /** Sign in with account credentials. Inspect `result.status` to branch.
-     *  On 'NeedsVerification' the SDK holds the challenge — call SubmitVerification.
+     *  On 'NeedsVerification' the SDK holds the challenge - call SubmitVerification.
      *  On 'Ok', `result.expiry` / `result.level` / `result.note` are populated. */
     Login(username: string, password: string): AccountLoginResult;
     /** Create a standalone account. Email optional but needed for password reset.
@@ -73,7 +73,7 @@ export interface AtlasAccount {
     /** Redeem a license key onto the currently signed-in account. */
     Redeem(license_key: string): boolean;
     /** Start a password reset. `identifier` = username or email.
-     *  Always returns true — anti-enumeration, the server never leaks whether it matched. */
+     *  Always returns true - anti-enumeration, the server never leaks whether it matched. */
     RequestPasswordReset(identifier: string): boolean;
     /** Complete the reset with the emailed code + new password. */
     CompletePasswordReset(code: string, new_password: string): boolean;
@@ -141,7 +141,7 @@ export interface AtlasWebhook {
     SendDiscord(webhook_url: string, message: string): boolean;
     /** Discord embed. `color` is 0xRRGGBB. */
     SendDiscordEmbed(webhook_url: string, title: string, description: string, color?: number): boolean;
-    /** POST an arbitrary JSON payload — Slack, custom endpoints, telemetry. */
+    /** POST an arbitrary JSON payload - Slack, custom endpoints, telemetry. */
     Send(url: string, json_payload: string): boolean;
 }
 
