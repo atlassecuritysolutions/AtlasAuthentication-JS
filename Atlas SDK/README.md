@@ -67,10 +67,16 @@ JS Integration/
 |---|---|
 | Windows 10 or 11 (x64) | Atlas is Windows-x64 only. |
 | [Node.js ≥ 18 (x64)](https://nodejs.org/) | 32-bit Node cannot load `Atlas.dll`. |
-| npm | Bundled with Node - installs `koffi` and (for Electron) `electron`. |
+| npm | Bundled with Node - installs the SDK and `koffi`. |
 | An Atlas account | [atlassecurity.site](https://atlassecurity.site) - free. |
 
-`koffi` is the only runtime dependency - a modern C ABI binding for Node with prebuilt x64 Windows binaries. No `node-gyp` etc.
+Install from npm:
+
+```
+npm install @atlassecurity/auth
+```
+
+That pulls down the package, the binding, and `Atlas.dll` together. `koffi` is the only runtime dependency - a modern C ABI binding for Node with prebuilt x64 Windows binaries. No `node-gyp` etc.
 
 ---
 
@@ -159,20 +165,20 @@ The build script uses `electron-packager` and copies `Atlas.dll` into the resour
 
 ## Integrate into your project
 
-1. Copy the [`Atlas SDK/`](Atlas%20SDK/) folder into your project (a `vendor/atlas/` folder is conventional).
-2. Install `koffi` - from the SDK folder, or add it to your top-level `package.json`:
+1. Add the package:
    ```
-   npm install koffi
+   npm install @atlassecurity/auth
    ```
-3. Set your API key from your own code before `Startup()`, or leave it inline in `Atlas SDK/src/index.js`:
+   This pulls the binding and `Atlas.dll` into `node_modules/@atlassecurity/auth/`. `koffi` is auto-installed as a transitive dependency.
+2. Set your API key from your own code before `Startup()`, or leave it inline in `node_modules/@atlassecurity/auth/src/index.js`:
    ```js
-   const atlas = require('./vendor/atlas/Atlas SDK/src');
+   const atlas = require('@atlassecurity/auth');
    atlas.API_KEY = process.env.ATLAS_KEY;
    atlas.Startup();
    ```
-4. Wire it up:
+3. Wire it up:
    ```js
-   const atlas = require('./vendor/atlas/Atlas SDK/src');
+   const atlas = require('@atlassecurity/auth');
 
    atlas.API_KEY = 'YOUR_API_KEY';
    atlas.Startup();
@@ -186,13 +192,21 @@ The build script uses `electron-packager` and copies `Atlas.dll` into the resour
    runMyApplication();  // authenticated
    ```
 
+Vendoring instead: copy the [`Atlas SDK/`](Atlas%20SDK/) folder into your project (a `vendor/atlas/` folder is conventional) and `require` it directly:
+
+```js
+const atlas = require('./vendor/atlas/Atlas SDK/src');
+```
+
+Use the npm path for normal projects; vendor when you need the SDK to ride inside a private registry or air-gapped build pipeline.
+
 Once you have a shipping build, compute its SHA-256 and paste it into **Applications → Executable-hash whitelist**. Modified copies are then rejected server-side before the license is even checked. You can whitelist one hash per release and revoke old ones from the same panel.
 
 For packaged Electron apps, whitelist the hash of your final `.exe` (the one from `electron-packager`), not `node.exe` / `Electron.exe`. Load the DLL from `process.resourcesPath` in production:
 
 ```js
 process.env.ATLAS_DLL_PATH = require('path').join(process.resourcesPath, 'Atlas.dll');
-const atlas = require('atlas-authentication');
+const atlas = require('@atlassecurity/auth');
 ```
 
 The binding ships with TypeScript typings (`src/index.d.ts`) - full types for `atlas.Account`, `AccountLoginResult`, and every namespace. No `@types` package needed.
@@ -253,7 +267,7 @@ atlas.Account.CompletePasswordReset(code, new_pass);
 
 `atlas.Account.Status` is one of `Ok`, `WrongCredentials`, `NeedsVerification`, `Banned`, `AccountPaused`, `ServerUnreachable`, `Error`.
 
-- On `Ok` - `r.expiry`, `r.level`, `r.note` are populated.
+- On `Ok` - `r.user_id`, `r.expiry`, `r.level`, `r.note` are populated.
 - On `NeedsVerification` - the server emailed an 8-digit code; pass it to `SubmitVerification`. `r.masked_email`, `r.sign_in_ip`, `r.sign_in_country` are populated so you can render something like "we sent a code to a•••@example.com from Riyadh."
 
 ### `atlas.Data`
@@ -262,7 +276,7 @@ Session state, valid once `Login` succeeds.
 
 ```js
 // Identity
-GetLicense()  GetUsername()  GetEmail()  GetIP()  GetHWID()  GetDevice()
+GetLicense()  GetUsername()  GetEmail()  GetPassword()  GetIP()  GetHWID()  GetDevice()
 GetNote()  GetUserId()  GetLevel()
 GetFirstSeenDate()  GetLastSeenDate()
 
@@ -285,6 +299,7 @@ Server operations that act on the current session.
 
 ```js
 CheckAuthentication();                        // force a fresh server round-trip
+Download(file_id);                            // dashboard-uploaded file → Buffer, empty on failure
 BanUser(reason, duration_minutes);            // duration = 0 → permanent
 SubmitLog(text);                              // ≤ 512 chars, appears in dashboard Logs
 ChangePassword(old_password, new_password);   // account flow only
@@ -349,7 +364,7 @@ The API key is a **routing identifier** - it tells the server which dashboard ac
 
 **Application exits during `Startup()`** - Atlas terminated the process after an integrity check failed. Verify `Atlas.API_KEY` is set correctly, the application still exists in the dashboard, and the main process isn't running under a debugger (`--inspect`, VS Code JS debugger, Chrome DevTools inspector). Renderer DevTools are supported. See **Dashboard → Logs** for the exact failure reason.
 
-**`Login()` returns `false`** - call `Atlas.GetErrorMessage()` to determine the failure. Common causes include an executable hash mismatch (after rebuilding), an expired or banned license, a banned HWID, or invalid credentials.
+**`Login()` returns `false`** - call `atlas.Data.GetErrorMessage()` to determine the failure. Common causes include an executable hash mismatch (after rebuilding), an expired or banned license, a banned HWID, or invalid credentials.
 
 **Packaged Electron application exits immediately** - verify `Atlas.dll` is bundled into `process.resourcesPath`, and if executable whitelisting is enabled, confirm the packaged executable matches the application's configured hash.
 
@@ -382,7 +397,7 @@ Line:   2258
 ```
 
 > [!NOTE]
-> The rest of `%LOCALAPPDATA%\AtlasAuth` - `installed.flag`, `declined.flag`, `commit.sha`, `manage_autoupdate.bat` - is dev-only. Those files exist to drive the MSBuild auto-update hook and only appear when a dev environment (Visual Studio, VS Code, MSBuild, JetBrains, and similar) is detected. `logs\` is the only part of this folder your end users will ever have. Always remember to check this folder to diagnose any issues, it is your #1 GOTO!
+> The rest of `%LOCALAPPDATA%\AtlasAuth` is dev-only. End users only ever see `logs\`. Developers may also see a `dev_marker.json` written by the install hook (or `installed.flag`, `declined.flag`, `commit.sha`, `manage_autoupdate.bat` written when a dev environment like Visual Studio, VS Code, JetBrains, MSBuild, WebStorm, or VS Code is detected). Those exist to drive SDK version checks and are unrelated to runtime diagnosis. `logs\` is the only part of this folder your end users will ever have. Always remember to check this folder to diagnose any issues, it is your #1 GOTO!
 
 ---
 ## Support

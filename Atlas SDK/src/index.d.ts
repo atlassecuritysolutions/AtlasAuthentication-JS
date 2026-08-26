@@ -46,15 +46,7 @@ export interface AtlasLicense {
 }
 
 export interface AtlasAccount {
-    Status: Readonly<{
-        Ok: 'Ok';
-        WrongCredentials: 'WrongCredentials';
-        NeedsVerification: 'NeedsVerification';
-        Banned: 'Banned';
-        AccountPaused: 'AccountPaused';
-        ServerUnreachable: 'ServerUnreachable';
-        Error: 'Error';
-    }>;
+    Status: Readonly<Record<AccountStatus, AccountStatus>>;
     /** Sign in with account credentials. Inspect `result.status` to branch.
      *  On 'NeedsVerification' the SDK holds the challenge - call SubmitVerification.
      *  On 'Ok', `result.expiry` / `result.level` / `result.note` are populated. */
@@ -82,6 +74,8 @@ export interface AtlasAccount {
 export interface AtlasNetwork {
     /** Poll the server to confirm the current session is still valid. */
     CheckAuthentication(): boolean;
+    /** Fetch a dashboard-uploaded file by id. Empty Buffer on failure / not found. */
+    Download(file_id: number): Buffer;
     /** Ban the current user from your app. `duration_minutes = 0` → permanent. */
     BanUser(reason: string, duration_minutes?: number): boolean;
     /** Emit a custom log line (max 512 chars) to the dashboard's Logs tab. */
