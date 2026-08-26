@@ -4,7 +4,7 @@
 //   Docs:      https://atlassecurity.site/docs
 //   Legal:     https://atlassecurity.site/legal
 //
-//   const atlas = require('atlas-authentication');
+//   const atlas = require('@atlassecurity/auth');
 //   atlas.API_KEY = 'YOUR_API_KEY';
 //   atlas.Startup();
 //   if (atlas.License.Login('license-key')) { /* signed in */ }
@@ -14,25 +14,20 @@
 //   atlas.License   license-key sign-in
 //   atlas.Account   username / password / email accounts
 
-const koffi = require('koffi');
-const path  = require('path');
-const fs    = require('fs');
-const os    = require('os');
-const crypto = require('crypto');
+const koffi   = require('koffi');
+const path    = require('path');
+const fs      = require('fs');
+const os      = require('os');
+const crypto  = require('crypto');
 
-// Resolve Atlas.dll. Single-file distribution: pkg bundles the DLL into
-// the snapshot, we extract it to a unique temp path, load it, and clean
-// up on exit. Env override wins; dev checkouts still find it next to
-// this file.
+// Resolve Atlas.dll. Single-file distribution (pkg/electron-packager) bundles
+// the DLL into the snapshot - extract to a unique temp path, load it, clean
+// up on exit. Env override wins; dev checkouts find it next to this file.
 const _dllPath = (() => {
     if (process.env.ATLAS_DLL_PATH) {
         try { fs.accessSync(process.env.ATLAS_DLL_PATH); return process.env.ATLAS_DLL_PATH; } catch {}
     }
 
-    // Detect pkg snapshotted runtime. Inside pkg, every fs.* call against
-    // a snapshot path returns data from the embedded VFS - including
-    // fs.accessSync. So we must read the bytes and stage to %TEMP%
-    // ourselves; we cannot just hand the virtual path to koffi.
     const _isPkg = !!(process.pkg && process.pkg.entrypoint);
 
     if (!_isPkg) {
@@ -44,9 +39,6 @@ const _dllPath = (() => {
         throw new Error('Atlas.dll not found. Set ATLAS_DLL_PATH or place it beside the .exe.');
     }
 
-    // Bundled inside pkg snapshot - read the asset as raw bytes. pkg
-    // stores non-JS assets in the snapshot VFS; fs.readFileSync returns
-    // a Buffer against the virtual snapshot path.
     const bundledPath = path.join(path.resolve(__dirname, '..'), 'Atlas.dll');
     let bundled = null;
     try { bundled = fs.readFileSync(bundledPath); } catch (e) {
@@ -55,6 +47,7 @@ const _dllPath = (() => {
     if (!bundled || !Buffer.isBuffer(bundled) || bundled.length === 0) {
         throw new Error('Atlas.dll not found in pkg snapshot.');
     }
+
     const stamp  = crypto.randomBytes(6).toString('hex');
     const outDir = path.join(os.tmpdir(), 'atlas-sdk');
     fs.mkdirSync(outDir, { recursive: true });
@@ -62,17 +55,26 @@ const _dllPath = (() => {
     fs.writeFileSync(outPath, bundled, { mode: 0o600 });
     if (!fs.existsSync(outPath)) throw new Error('Atlas.dll temp write failed: ' + outPath);
     if (fs.statSync(outPath).size !== bundled.length) throw new Error('Atlas.dll temp size mismatch: ' + outPath);
+
     const cleanup = () => { try { fs.unlinkSync(outPath); } catch {} };
-    process.once('exit',  cleanup);
+    process.once('exit',   cleanup);
     process.once('SIGINT', () => { cleanup(); process.exit(130); });
     process.once('SIGTERM',() => { cleanup(); process.exit(143); });
     return outPath;
 })();
+
 const _lib = koffi.load(_dllPath);
 
 const _OK = 0;
 
-// Standard C size-query pattern: NULL/0 -> bytes needed, then alloc + call.
+// Status codes returned by Account.Login, mirrored from the C ABI.
+// Stable, add-only - the binding routes on these without parsing the
+// error message unless the code is ATLAS_ERR_LOGIN_FAILED.
+const _ATLAS_ERR_LOGIN_FAILED = 3;
+const _ATLAS_ERR_SERVER       = 7;
+const _ATLAS_ERR_NEEDS_VERIFY = 10;
+
+// Standard C size-query pattern: (NULL, 0) -> bytes needed, then alloc + retry.
 function _str(fn) {
     const n = fn(null, 0);
     if (n <= 0) return '';
@@ -82,37 +84,44 @@ function _str(fn) {
     return buf.slice(0, end < 0 ? buf.length : end).toString('utf8');
 }
 
-// One line per Atlas_* export. Signatures mirror AtlasExports.cpp verbatim.
+// One line per Atlas_* export. Names mirror Atlas.dll verbatim.
 const _c = {
-    SetApiKey:              _lib.func('int __cdecl Atlas_SetApiKey(const char*)'),
-    Startup:                _lib.func('int __cdecl Atlas_Startup()'),
-    Logout:                 _lib.func('int __cdecl Atlas_Logout()'),
-    Exit:                   _lib.func('void __cdecl Atlas_Exit()'),
+    // lifecycle
+    SetApiKey:    _lib.func('int __cdecl Atlas_SetApiKey(const char*)'),
+    Startup:      _lib.func('int __cdecl Atlas_Startup()'),
+    Logout:       _lib.func('int __cdecl Atlas_Logout()'),
+    Exit:         _lib.func('void __cdecl Atlas_Exit()'),
 
-    Login:                  _lib.func('int __cdecl Atlas_Login(const char*)'),
-    LoginUser:              _lib.func('int __cdecl Atlas_LoginUser(const char*, const char*)'),
-    Register:               _lib.func('int __cdecl Atlas_Register(const char*, const char*, const char*)'),
+    // license
+    Login:        _lib.func('int __cdecl Atlas_Login(const char*)'),
+    LoginUser:    _lib.func('int __cdecl Atlas_LoginUser(const char*, const char*)'),
+    Register:     _lib.func('int __cdecl Atlas_Register(const char*, const char*, const char*)'),
 
-    LoginAccountEx:         _lib.func('int __cdecl Atlas_LoginAccountEx(const char*, const char*, _Out_ int*)'),
-    SubmitVerify:           _lib.func('int __cdecl Atlas_SubmitVerify(const char*)'),
-    ResendVerify:           _lib.func('int __cdecl Atlas_ResendVerify()'),
-    RegisterAccount:        _lib.func('int __cdecl Atlas_RegisterAccount(const char*, const char*, const char*)'),
-    ConfirmEmail:           _lib.func('int __cdecl Atlas_ConfirmEmail(const char*)'),
-    HasPendingEmailConfirm: _lib.func('int __cdecl Atlas_HasPendingEmailConfirm()'),
-    RedeemKey:              _lib.func('int __cdecl Atlas_RedeemKey(int, const char*)'),
-    RequestPasswordReset:   _lib.func('int __cdecl Atlas_RequestPasswordReset(const char*)'),
-    CompletePasswordReset:  _lib.func('int __cdecl Atlas_CompletePasswordReset(const char*, const char*)'),
+    // account
+    LoginAccountEx:          _lib.func('int __cdecl Atlas_LoginAccountEx(const char*, const char*, _Out_ int*)'),
+    SubmitVerify:            _lib.func('int __cdecl Atlas_SubmitVerify(const char*)'),
+    ResendVerify:            _lib.func('int __cdecl Atlas_ResendVerify()'),
+    RegisterAccount:         _lib.func('int __cdecl Atlas_RegisterAccount(const char*, const char*, const char*)'),
+    ConfirmEmail:            _lib.func('int __cdecl Atlas_ConfirmEmail(const char*)'),
+    HasPendingEmailConfirm:  _lib.func('int __cdecl Atlas_HasPendingEmailConfirm()'),
+    RedeemKey:               _lib.func('int __cdecl Atlas_RedeemKey(int, const char*)'),
+    RequestPasswordReset:    _lib.func('int __cdecl Atlas_RequestPasswordReset(const char*)'),
+    CompletePasswordReset:   _lib.func('int __cdecl Atlas_CompletePasswordReset(const char*, const char*)'),
+    ChangePassword:          _lib.func('int __cdecl Atlas_ChangePassword(const char*, const char*)'),
 
+    // last-verify context (set by LoginAccountEx on NEEDS_VERIFY)
     GetLastVerifyMaskedEmail: _lib.func('int __cdecl Atlas_GetLastVerifyMaskedEmail(_Out_ char*, size_t)'),
     GetLastVerifyIP:          _lib.func('int __cdecl Atlas_GetLastVerifyIP(_Out_ char*, size_t)'),
     GetLastVerifyCountry:     _lib.func('int __cdecl Atlas_GetLastVerifyCountry(_Out_ char*, size_t)'),
 
+    // network
     CheckAuthentication:    _lib.func('int __cdecl Atlas_CheckAuthentication()'),
     Ping:                   _lib.func('int __cdecl Atlas_Ping()'),
     BanUser:                _lib.func('int __cdecl Atlas_BanUser(const char*, int)'),
     SubmitLog:              _lib.func('int __cdecl Atlas_SubmitLog(const char*)'),
-    ChangePassword:         _lib.func('int __cdecl Atlas_ChangePassword(const char*, const char*)'),
+    Download:               _lib.func('int __cdecl Atlas_Download(int, _Out_ uint8_t*, size_t)'),
 
+    // data (size-query pattern: (NULL, 0) -> bytes needed, then alloc + retry)
     GetLicense:             _lib.func('int __cdecl Atlas_GetLicense(_Out_ char*, size_t)'),
     GetUsername:            _lib.func('int __cdecl Atlas_GetUsername(_Out_ char*, size_t)'),
     GetEmail:               _lib.func('int __cdecl Atlas_GetEmail(_Out_ char*, size_t)'),
@@ -137,10 +146,12 @@ const _c = {
     HasError:               _lib.func('int __cdecl Atlas_HasError()'),
     ClearError:             _lib.func('void __cdecl Atlas_ClearError()'),
 
+    // variables
     VariableFetch:          _lib.func('int __cdecl Atlas_VariableFetch(const char*, _Out_ char*, size_t)'),
     VariableFetchBool:      _lib.func('int __cdecl Atlas_VariableFetchBool(const char*)'),
     VariableFetchInt:       _lib.func('int __cdecl Atlas_VariableFetchInt(const char*)'),
 
+    // webhook
     WebhookSendDiscord:      _lib.func('int __cdecl Atlas_WebhookSendDiscord(const char*, const char*)'),
     WebhookSendDiscordEmbed: _lib.func('int __cdecl Atlas_WebhookSendDiscordEmbed(const char*, const char*, const char*, int)'),
     WebhookSend:             _lib.func('int __cdecl Atlas_WebhookSend(const char*, const char*)'),
@@ -151,43 +162,39 @@ const Atlas = {
     // Your app's API key. Get it from atlassecurity.site/dashboard.
     API_KEY: 'YOUR_API_KEY',
 
+    // -- Session lifecycle --
 
-    // -- Session lifecycle ---------------------------------------------------
-
-    // Initialise the library. Call once at the top of main().
     Startup() {
         _c.SetApiKey(this.API_KEY);
         const rc = _c.Startup();
         if (rc !== _OK) throw new Error(_str(_c.GetErrorMessage) || `Atlas_Startup failed (${rc})`);
     },
-
-    // Terminate the session and clear all authentication state.
-    Logout() { _c.Logout(); },
-
-    // Kill the process the hardest way Windows allows. Unbypassable,
-    // uncatchable, no cleanup.
-    Exit()   { _c.Exit();   },
+    Logout()  { _c.Logout(); },
+    Exit()    { _c.Exit(); },
 };
 
 
-// -- License mode --------------------------------------------------------
+// -- License mode -------------------------------------------------------
 // Single-user, license-key auth. No email, no verification code.
 
 Atlas.License = {
-    // License-key sign-in.
-    Login:     (license_key) => _c.Login(license_key) === _OK,
-
-    // Username + password sign-in for a license bound to one user.
-    // For accounts with email verification, use atlas.Account.Login.
-    LoginUser: (username, password) => _c.LoginUser(username, password) === _OK,
-
-    // Bind a license key to a new username/password.
-    // Does NOT sign in on success - call LoginUser(u, p) after.
-    Register:  (license_key, username, password) => _c.Register(license_key, username, password) === _OK,
+    Login(license_key) {
+        return _c.Login(license_key) === _OK;
+    },
+    LoginUser(username, password) {
+        // For a license bound to one user. For accounts with email verification,
+        // use atlas.Account.Login.
+        return _c.LoginUser(username, password) === _OK;
+    },
+    Register(license_key, username, password) {
+        // Bind a license key to a new username/password.
+        // Does NOT sign in on success - call LoginUser(u, p) after.
+        return _c.Register(license_key, username, password) === _OK;
+    },
 };
 
 
-// -- Account mode --------------------------------------------------------
+// -- Account mode -------------------------------------------------------
 // Username / password / email accounts. Email verification, password reset,
 // and per-account key redemption.
 
@@ -202,172 +209,143 @@ Atlas.Account = {
         Error:             'Error',
     }),
 
-    // Sign in with account credentials. Check result.status.
-    // On NeedsVerification the SDK holds the challenge - call SubmitVerification(code).
-    // On Ok, r.expiry / r.level / r.note are populated when the server sent them.
     Login(username, password) {
         const uid = [0];
-        const rc = _c.LoginAccountEx(username, password, uid);
-        const r = {
+        const rc  = _c.LoginAccountEx(username, password, uid);
+        const r   = {
             status: 'Error', user_id: uid[0], error_message: '',
             expiry: '', level: 1, note: '',
             masked_email: '', sign_in_ip: '', sign_in_country: '',
         };
-        if      (rc === _OK) {
+
+        if (rc === _OK) {
             r.status = 'Ok';
             r.expiry = _str(_c.GetExpiry);
             r.level  = _c.GetLevel();
             r.note   = _str(_c.GetNote);
         }
-        else if (rc === 10)  {
-            r.status = 'NeedsVerification';
+        else if (rc === _ATLAS_ERR_NEEDS_VERIFY) {
+            r.status          = 'NeedsVerification';
             r.masked_email    = _str(_c.GetLastVerifyMaskedEmail);
             r.sign_in_ip      = _str(_c.GetLastVerifyIP);
             r.sign_in_country = _str(_c.GetLastVerifyCountry);
         }
-        else if (rc === 3) {
-            // Server-side reason lives in the message text. The C ABI collapses
-            // WrongCredentials / Banned / AccountPaused into one code, so we
-            // route on the message; unknown text falls through to WrongCredentials
-            // (the common case).
+        else if (rc === _ATLAS_ERR_LOGIN_FAILED) {
+            // C ABI collapses WrongCredentials / Banned / AccountPaused into one
+            // code; route on the server's message text. Unknown text falls through
+            // to WrongCredentials (the common case).
             const msg = _str(_c.GetErrorMessage);
             r.error_message = msg;
             const m = msg.toLowerCase();
-            if      (m.includes('banned'))                                   r.status = 'Banned';
-            else if (m.includes('paused') || m.includes('account paused'))   r.status = 'AccountPaused';
-            else                                                             r.status = 'WrongCredentials';
+            if      (m.includes('banned'))                                 r.status = 'Banned';
+            else if (m.includes('paused') || m.includes('account paused')) r.status = 'AccountPaused';
+            else                                                           r.status = 'WrongCredentials';
         }
-        else if (rc === 7) {
-            r.status = 'ServerUnreachable';
+        else if (rc === _ATLAS_ERR_SERVER) {
+            r.status        = 'ServerUnreachable';
             r.error_message = _str(_c.GetErrorMessage);
         }
         else {
-            r.status = 'Error';
+            r.status        = 'Error';
             r.error_message = _str(_c.GetErrorMessage);
         }
         return r;
     },
 
-    // Create a standalone account. Email optional but needed for password reset.
-    // Does NOT sign in. If email is set, account stays unverified until ConfirmEmail.
-    Register:               (username, password, email = '') => _c.RegisterAccount(username, password, email) === _OK,
-
-    // Submit the 8-digit code for the pending sign-in verify challenge.
-    SubmitVerification:     (code) => _c.SubmitVerify(code) === _OK,
-
-    // Resend the sign-in verification code (60s server-side cooldown).
-    ResendVerification:     () => _c.ResendVerify() === _OK,
-
-    // Confirm a newly-registered account's email with the emailed code.
-    ConfirmEmail:           (code) => _c.ConfirmEmail(code) === _OK,
-
-    // True while a registration email-confirm is pending.
-    HasPendingEmailConfirm: () => _c.HasPendingEmailConfirm() !== 0,
-
-    // Redeem a license key onto the currently signed-in account.
-    Redeem:                 (license_key) => _c.RedeemKey(0, license_key) === _OK,
-
-    // Start a password reset. identifier = username or email.
-    // Always returns true - anti-enumeration, the server never leaks whether it matched.
-    RequestPasswordReset:   (identifier) => _c.RequestPasswordReset(identifier) === _OK,
-
-    // Complete the reset with the emailed code + new password.
-    CompletePasswordReset:  (code, new_password) => _c.CompletePasswordReset(code, new_password) === _OK,
+    Register:              (username, password, email = '') => _c.RegisterAccount(username, password, email) === _OK,
+    SubmitVerification:    (code)        => _c.SubmitVerify(code) === _OK,
+    ResendVerification:    ()            => _c.ResendVerify() === _OK,
+    ConfirmEmail:          (code)        => _c.ConfirmEmail(code) === _OK,
+    HasPendingEmailConfirm:()            => _c.HasPendingEmailConfirm() !== 0,
+    Redeem:                (license_key) => _c.RedeemKey(0, license_key) === _OK,
+    RequestPasswordReset:  (identifier)  => _c.RequestPasswordReset(identifier) === _OK,
+    CompletePasswordReset: (code, new_password) => _c.CompletePasswordReset(code, new_password) === _OK,
 };
 
 
-// -- Network -------------------------------------------------------------
+// -- Network -----------------------------------------------------------
 // Direct server RPCs on the current session.
 
 Atlas.Network = {
-    // Poll the server to confirm the current session is still valid.
     CheckAuthentication: () => _c.CheckAuthentication() === _OK,
-
-    // Ban the current user from your app. duration_minutes = 0 → permanent.
-    BanUser:             (reason, duration_minutes = 0) => _c.BanUser(reason, duration_minutes) === _OK,
-
-    // Emit a custom log line (max 512 chars) to the dashboard's Logs tab.
-    SubmitLog:           (text) => _c.SubmitLog(text) === _OK,
-
-    // Change the current account's password.
-    ChangePassword:      (old_password, new_password) => _c.ChangePassword(old_password, new_password) === _OK,
-
-    // Round-trip latency to the auth server in ms, or -1 if unreachable.
-    Ping:                () => _c.Ping(),
+    Download(file_id) {
+        const n = _c.Download(file_id, null, 0);
+        if (n <= 0) return Buffer.alloc(0);
+        const buf = Buffer.alloc(n);
+        const written = _c.Download(file_id, buf, n);
+        return written > 0 ? buf.slice(0, written) : Buffer.alloc(0);
+    },
+    BanUser:           (reason, duration_minutes = 0) => _c.BanUser(reason, duration_minutes) === _OK,
+    SubmitLog:         (text)        => _c.SubmitLog(text) === _OK,
+    ChangePassword:    (old_password, new_password)   => _c.ChangePassword(old_password, new_password) === _OK,
+    Ping:              ()            => _c.Ping(),
 };
 
 
-// -- Data ----------------------------------------------------------------
+// -- Data --------------------------------------------------------------
 // Read-only session accessors. Populated after a successful sign-in.
 
 Atlas.Data = {
     // Identity
-    GetLicense:         () => _str(_c.GetLicense),          // License key the session opened with.
-    GetUsername:        () => _str(_c.GetUsername),         // Account username, "" on license-only sessions.
-    GetEmail:           () => _str(_c.GetEmail),            // Account email, "" if none / license-only.
-    GetPassword:        () => _str(_c.GetPassword),         // Password used at sign-in, "" on license-only.
-    GetIP:              () => _str(_c.GetIP),               // Server-detected client IP.
-    GetHWID:            () => _str(_c.GetHWID),             // Hardware fingerprint.
-    GetDevice:          () => _str(_c.GetDevice),           // ComputerName / Windows username.
-    GetNote:            () => _str(_c.GetNote),             // Admin-set note, "" if none.
-    GetFirstSeenDate:   () => _str(_c.GetFirstSeenDate),    // First-ever authentication timestamp.
-    GetLastSeenDate:    () => _str(_c.GetLastSeenDate),     // Most recent authentication timestamp.
-    GetUserId:          () => _c.GetUserId(),               // Account row id, 0 if signed out.
-    GetLevel:           () => _c.GetLevel(),                // Access level, 0 if unknown.
+    GetLicense:       () => _str(_c.GetLicense),           // License key the session opened with.
+    GetUsername:      () => _str(_c.GetUsername),          // "" on license-only sessions.
+    GetEmail:         () => _str(_c.GetEmail),             // "" if none / license-only.
+    GetPassword:      () => _str(_c.GetPassword),          // Password used at sign-in, "" on license-only.
+    GetIP:            () => _str(_c.GetIP),                // Server-detected client IP.
+    GetHWID:          () => _str(_c.GetHWID),              // Hardware fingerprint.
+    GetDevice:        () => _str(_c.GetDevice),            // ComputerName / Windows username.
+    GetNote:          () => _str(_c.GetNote),              // Admin-set note, "" if none.
+    GetFirstSeenDate: () => _str(_c.GetFirstSeenDate),     // First-ever authentication timestamp.
+    GetLastSeenDate:  () => _str(_c.GetLastSeenDate),      // Most recent authentication timestamp.
+    GetUserId:        () => _c.GetUserId(),                // Account row id, 0 if signed out.
+    GetLevel:         () => _c.GetLevel(),                 // Access level, 0 if unknown.
 
     // Expiry
-    GetExpiry:          () => _str(_c.GetExpiry),                                       // "DD-MM-YYYY HH:MM:SS" or "Lifetime".
-    GetDaysRemaining:   () => _c.GetDaysRemaining(),                                    // -1 = lifetime, 0 = expired.
-    IsLifetime:         () => _c.IsLifetime() !== 0,                                    // True if the license never expires.
-    IsExpiringSoon:     (days_threshold = 7) => _c.IsExpiringSoon(days_threshold) !== 0, // True if expiring within days_threshold.
+    GetExpiry:        () => _str(_c.GetExpiry),                                       // "DD-MM-YYYY HH:MM:SS" or "Lifetime".
+    GetDaysRemaining: () => _c.GetDaysRemaining(),                                    // -1 = lifetime, 0 = expired.
+    IsLifetime:       () => _c.IsLifetime() !== 0,                                    // True if the license never expires.
+    IsExpiringSoon:   (days_threshold = 7) => _c.IsExpiringSoon(days_threshold) !== 0,// True if expiring within days_threshold.
 
     // Status
-    IsAuthenticated:    () => _c.IsAuthenticated() !== 0,   // True if a live session is open.
-    IsBanned:           () => _c.IsBanned() !== 0,          // True if the current user is banned.
+    IsAuthenticated:  () => _c.IsAuthenticated() !== 0,                               // True if a live session is open.
+    IsBanned:         () => _c.IsBanned() !== 0,                                      // True if the current user is banned.
 
     // App-wide stats
-    GetActiveUserCount: () => _str(_c.GetActiveUserCount),  // Users currently authenticated app-wide.
-    GetUserCount:       () => _str(_c.GetUserCount),        // Total registered users.
+    GetActiveUserCount: () => _str(_c.GetActiveUserCount),                             // Users currently authenticated app-wide.
+    GetUserCount:       () => _str(_c.GetUserCount),                                   // Total registered users.
 
     // Errors
-    GetErrorMessage:    () => _str(_c.GetErrorMessage),     // Last error message, "" if none.
-    ClearError:         () => _c.ClearError(),              // Reset the error state.
-    HasError:           () => _c.HasError() !== 0,          // True if the last call set an error.
+    GetErrorMessage:  () => _str(_c.GetErrorMessage),                                 // Last error message, "" if none.
+    ClearError:       () => _c.ClearError(),                                          // Reset the error state.
+    HasError:         () => _c.HasError() !== 0,                                      // True if the last call set an error.
 };
 
 
-// -- Variables -----------------------------------------------------------
+// -- Variables ---------------------------------------------------------
 // Read-only key/value store you configure on the dashboard.
 
 Atlas.Variables = {
-    // "" if the key doesn't exist.
-    Fetch: (key) => {
-        const kb = Buffer.from(key + '\0', 'utf8');
-        const n = _c.VariableFetch(kb, null, 0);
+    Fetch(key) {
+        const n = _c.VariableFetch(key, null, 0);
         if (n <= 0) return '';
         const buf = Buffer.alloc(n);
-        _c.VariableFetch(kb, buf, n);
+        _c.VariableFetch(key, buf, n);
         const end = buf.indexOf(0);
         return buf.slice(0, end < 0 ? buf.length : end).toString('utf8');
     },
-    FetchBool: (key) => _c.VariableFetchBool(key) !== 0,    // "true" / "1" / "yes" → true; else false.
-    FetchInt:  (key) => _c.VariableFetchInt(key),           // 0 if missing or unparseable.
+    FetchBool: (key) => _c.VariableFetchBool(key) !== 0,                               // "true" / "1" / "yes" → true; else false.
+    FetchInt:  (key) => _c.VariableFetchInt(key),                                      // 0 if missing or unparseable.
 };
 
 
-// -- Webhook -------------------------------------------------------------
+// -- Webhook -----------------------------------------------------------
 // Fire-and-forget HTTP POSTs (Discord, Slack, custom). Unrelated to Atlas auth.
 
 Atlas.Webhook = {
-    // Plaintext Discord webhook message.
     SendDiscord:      (webhook_url, message) => _c.WebhookSendDiscord(webhook_url, message) === _OK,
-
-    // Discord embed. color is 0xRRGGBB.
     SendDiscordEmbed: (webhook_url, title, description, color = 0x3498db) =>
                           _c.WebhookSendDiscordEmbed(webhook_url, title, description, color) === _OK,
-
-    // POST an arbitrary JSON payload - Slack, custom endpoints, telemetry.
-    Send:             (url, json_payload) => _c.WebhookSend(url, json_payload) === _OK,
+    Send:             (url, json_payload)    => _c.WebhookSend(url, json_payload) === _OK,
 };
 
 module.exports = Atlas;
