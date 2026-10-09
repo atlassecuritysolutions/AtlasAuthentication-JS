@@ -12,6 +12,9 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const ask = (q) => new Promise((r) => rl.question(q, r));
 
 (async () => {
+    // Your app's API key (Dashboard → Applications). Set it before Startup.
+    atlas.API_KEY = 'YOUR_API_KEY';
+
     // Must be called once at startup before any other Atlas functions.
     atlas.Startup();
 

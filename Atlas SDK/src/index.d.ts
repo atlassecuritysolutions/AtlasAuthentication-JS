@@ -1,162 +1,176 @@
 // TypeScript definitions for the Atlas JS binding. One-to-one with src/index.js.
 //
 //   Dashboard: https://atlassecurity.site/dashboard
-//   Docs:      https://atlassecurity.site/docs
+//   Docs:      https://atlassecurity.site/docs?p=sdk/overview
 //   Legal:     https://atlassecurity.site/legal
+//
+// Uses Node's Buffer: install @types/node.
 
-export type AccountStatus =
-    | 'Ok'
-    | 'WrongCredentials'
-    | 'NeedsVerification'
-    | 'Banned'
-    | 'AccountPaused'
-    | 'ServerUnreachable'
-    | 'Error';
+/// <reference types="node" />
 
-export interface AccountLoginResult {
-    /** Sign-in outcome. Branch on this before reading any other field. */
-    status: AccountStatus;
-    /** Numeric user id assigned by the auth server. Only meaningful on 'Ok'. */
-    user_id: number;
-    /** Human-readable reason. Populated on any non-'Ok' status. */
-    error_message: string;
-    /** "DD-MM-YYYY HH:MM:SS" or "Lifetime". Populated on 'Ok'. */
-    expiry: string;
-    /** Access level for the signed-in user. Populated on 'Ok'. */
-    level: number;
-    /** Admin-set note, "" if none. Populated on 'Ok'. */
-    note: string;
-    /** e.g. `s***i@gmail.com` - for the "we sent a code to X" UI. Populated on 'NeedsVerification'. */
-    masked_email: string;
-    /** IP the server saw for the sign-in attempt. Populated on 'NeedsVerification'. */
-    sign_in_ip: string;
-    /** ISO country code. Populated on 'NeedsVerification'. */
-    sign_in_country: string;
+declare namespace atlas {
+    /** 'ServerUnreachable' needs an Atlas.dll newer than 1.0.3; on 1.0.3 and earlier a network
+     *  failure arrives as 'WrongCredentials' with the cause in `error_message`. */
+    type AccountStatus =
+        | 'Ok'
+        | 'WrongCredentials'
+        | 'NeedsVerification'
+        | 'Banned'
+        | 'AccountPaused'
+        | 'ServerUnreachable'
+        | 'Error';
+
+    interface AccountLoginResult {
+        /** Sign-in outcome. Branch on this before reading any other field. */
+        status: AccountStatus;
+        /** Numeric user id assigned by the auth server. Only meaningful on 'Ok'. */
+        user_id: number;
+        /** Human-readable reason. Populated on any non-'Ok' status except 'NeedsVerification'. */
+        error_message: string;
+        /** "DD-MM-YYYY" or "Never". Populated on 'Ok'. */
+        expiry: string;
+        /** Access level for the signed-in user. Populated on 'Ok'. */
+        level: number;
+        /** Admin-set note, "None" if none. Populated on 'Ok'. */
+        note: string;
+        /** e.g. `m***s@example.com` - for the "we sent a code to X" UI. Populated on 'NeedsVerification'. */
+        masked_email: string;
+        /** IP the server saw for the sign-in attempt. Populated on 'NeedsVerification'. */
+        sign_in_ip: string;
+        /** ISO country code. Populated on 'NeedsVerification'. */
+        sign_in_country: string;
+    }
+
+    // License: sign in with a license key. The first sign-in locks the key to this PC.
+    // LoginUser and Register are only for a license that carries its own username and password. For real user accounts use Account.
+    // https://atlassecurity.site/docs?p=sdk/license
+    interface AtlasLicense {
+        Login(license_key: string): boolean;
+        LoginUser(username: string, password: string): boolean;
+        Register(license_key: string, username: string, password: string): boolean;
+    }
+
+    // Account: username and password accounts, with optional email verification and password reset.
+    // Login returns a result: read result.status first. 'NeedsVerification' means an 8-digit code was emailed, so call SubmitVerification(code).
+    // Register does not sign in.
+    // https://atlassecurity.site/docs?p=sdk/account
+    interface AtlasAccount {
+        Status: Readonly<Record<AccountStatus, AccountStatus>>;
+        Login(username: string, password: string): AccountLoginResult;
+        Register(username: string, password: string, email?: string): boolean;
+        SubmitVerification(code: string): boolean;
+        ResendVerification(): boolean;
+        ConfirmEmail(code: string): boolean;
+        HasPendingEmailConfirm(): boolean;
+        Redeem(license_key: string): boolean;
+        RequestPasswordReset(identifier: string): boolean;
+        CompletePasswordReset(code: string, new_password: string): boolean;
+    }
+
+    // Network: ask the server something during a session. The library already checks the session in the background,
+    // so CheckAuthentication() is only for right before a sensitive action.
+    // https://atlassecurity.site/docs?p=sdk/network
+    interface AtlasNetwork {
+        CheckAuthentication(): boolean;
+        Download(file_id: number): Buffer;
+        BanUser(reason: string, duration_minutes?: number): boolean;
+        SubmitLog(text: string): boolean;
+        ChangePassword(old_password: string, new_password: string): boolean;
+        Ping(): number;
+    }
+
+    // Data: facts about the signed-in session. Valid only after a successful sign-in.
+    // A getter with nothing to return gives "" or 0. GetDaysRemaining() is the exception: -1 means no expiry,
+    // 0 means expired or under 24 hours left. GetExpiry() is "DD-MM-YYYY" or "Never".
+    // https://atlassecurity.site/docs?p=sdk/data
+    interface AtlasData {
+        // Identity
+        GetLicense(): string;
+        GetUsername(): string;
+        GetEmail(): string;
+        GetPassword(): string;
+        GetIP(): string;
+        GetHWID(): string;
+        GetDevice(): string;
+        GetNote(): string;
+        GetFirstSeenDate(): string;
+        GetLastSeenDate(): string;
+        GetUserId(): number;
+        GetLevel(): number;
+
+        // Expiry
+        GetExpiry(): string;
+        GetDaysRemaining(): number;
+        IsLifetime(): boolean;
+        IsExpiringSoon(days_threshold?: number): boolean;
+
+        // Status
+        IsAuthenticated(): boolean;
+        IsBanned(): boolean;
+
+        // App-wide counts
+        GetActiveUserCount(): string;
+        GetUserCount(): string;
+
+        // Errors
+        GetErrorMessage(): string;
+        ClearError(): void;
+        HasError(): boolean;
+    }
+
+    // Variables: values you set on the dashboard, read while the app runs. Change one without shipping a new build.
+    // A key that does not exist gives "" (Fetch), 0 (FetchInt) or false (FetchBool).
+    // https://atlassecurity.site/docs?p=sdk/variables
+    interface AtlasVariables {
+        Fetch(key: string): string;
+        FetchBool(key: string): boolean;
+        FetchInt(key: string): number;
+    }
+
+    // Entitlements: what this license or account may do, from the features and credits you create on the dashboard.
+    // Has and Remaining are for showing and hiding. Only Consume is enforced by the server.
+    // https://atlassecurity.site/docs?p=sdk/entitlements
+    interface AtlasEntitlements {
+        Has(key: string): boolean;
+        Remaining(key: string): number;
+        Consume(key: string, amount?: number): boolean;
+        List(): string[];
+        Refresh(): boolean;
+    }
+
+    // Webhook: send an HTTP POST from the client (Discord, Slack or your own endpoint). Unrelated to Atlas sign-in.
+    // https://atlassecurity.site/docs?p=sdk/webhook
+    interface AtlasWebhook {
+        SendDiscord(webhook_url: string, message: string): boolean;
+        SendDiscordEmbed(webhook_url: string, title: string, description: string, color?: number): boolean;
+        Send(url: string, json_payload: string): boolean;
+    }
+
+    // Any call that can fail returns false or an empty value. Data.GetErrorMessage() says why.
+    interface Atlas {
+        // Dashboard > Applications. Set before Startup().
+        API_KEY: string;
+
+        // Session lifecycle: Startup() once, first (throws on failure). Logout() ends the session; the library stays loaded.
+        // Exit() kills the process, no cleanup.
+        // https://atlassecurity.site/docs?p=sdk/lifecycle
+        Startup(): void;
+        Logout(): void;
+        Exit(): never;
+
+        // Stops the library opening any message box of its own (server notices, the wrong-API-key box, the update
+        // notice). Call it before Startup(). The reason for a refusal stays in Data.GetErrorMessage().
+        DisableMessageBoxes(disabled?: boolean): void;
+
+        License: AtlasLicense;
+        Account: AtlasAccount;
+        Network: AtlasNetwork;
+        Data: AtlasData;
+        Variables: AtlasVariables;
+        Entitlements: AtlasEntitlements;
+        Webhook: AtlasWebhook;
+    }
 }
 
-export interface AtlasLicense {
-    /** License-key sign-in. HWID-bound on first use. */
-    Login(license_key: string): boolean;
-    /** Username + password sign-in for a license bound to one user.
-     *  For accounts with email verification, use `atlas.Account.Login`. */
-    LoginUser(username: string, password: string): boolean;
-    /** Bind a license key to a new username/password.
-     *  Does NOT sign in on success - call `LoginUser` after. */
-    Register(license_key: string, username: string, password: string): boolean;
-}
-
-export interface AtlasAccount {
-    Status: Readonly<Record<AccountStatus, AccountStatus>>;
-    /** Sign in with account credentials. Inspect `result.status` to branch.
-     *  On 'NeedsVerification' the SDK holds the challenge - call SubmitVerification.
-     *  On 'Ok', `result.expiry` / `result.level` / `result.note` are populated. */
-    Login(username: string, password: string): AccountLoginResult;
-    /** Create a standalone account. Email optional but needed for password reset.
-     *  Does NOT sign in. If email is set, account stays unverified until ConfirmEmail. */
-    Register(username: string, password: string, email?: string): boolean;
-    /** Submit the 8-digit code for the pending sign-in verify challenge. */
-    SubmitVerification(code: string): boolean;
-    /** Resend the sign-in verification code (60s server-side cooldown). */
-    ResendVerification(): boolean;
-    /** Confirm a newly-registered account's email with the emailed code. */
-    ConfirmEmail(code: string): boolean;
-    /** True while a registration email-confirm is pending. */
-    HasPendingEmailConfirm(): boolean;
-    /** Redeem a license key onto the currently signed-in account. */
-    Redeem(license_key: string): boolean;
-    /** Start a password reset. `identifier` = username or email.
-     *  Always returns true - anti-enumeration, the server never leaks whether it matched. */
-    RequestPasswordReset(identifier: string): boolean;
-    /** Complete the reset with the emailed code + new password. */
-    CompletePasswordReset(code: string, new_password: string): boolean;
-}
-
-export interface AtlasNetwork {
-    /** Poll the server to confirm the current session is still valid. */
-    CheckAuthentication(): boolean;
-    /** Fetch a dashboard-uploaded file by id. Empty Buffer on failure / not found. */
-    Download(file_id: number): Buffer;
-    /** Ban the current user from your app. `duration_minutes = 0` → permanent. */
-    BanUser(reason: string, duration_minutes?: number): boolean;
-    /** Emit a custom log line (max 512 chars) to the dashboard's Logs tab. */
-    SubmitLog(text: string): boolean;
-    /** Change the current account's password. */
-    ChangePassword(old_password: string, new_password: string): boolean;
-    /** Round-trip latency to the auth server in ms, or -1 if unreachable. */
-    Ping(): number;
-}
-
-export interface AtlasData {
-    // Identity
-    GetLicense(): string;
-    GetUsername(): string;
-    GetEmail(): string;
-    GetPassword(): string;
-    GetIP(): string;
-    GetHWID(): string;
-    GetDevice(): string;
-    GetNote(): string;
-    GetFirstSeenDate(): string;
-    GetLastSeenDate(): string;
-    GetUserId(): number;
-    GetLevel(): number;
-
-    // Expiry
-    GetExpiry(): string;
-    GetDaysRemaining(): number;
-    IsLifetime(): boolean;
-    IsExpiringSoon(days_threshold?: number): boolean;
-
-    // Status
-    IsAuthenticated(): boolean;
-    IsBanned(): boolean;
-
-    // App-wide stats
-    GetActiveUserCount(): string;
-    GetUserCount(): string;
-
-    // Errors
-    GetErrorMessage(): string;
-    ClearError(): void;
-    HasError(): boolean;
-}
-
-export interface AtlasVariables {
-    /** "" if the key doesn't exist. */
-    Fetch(key: string): string;
-    /** "true" / "1" / "yes" → true; else false. */
-    FetchBool(key: string): boolean;
-    /** 0 if missing or unparseable. */
-    FetchInt(key: string): number;
-}
-
-export interface AtlasWebhook {
-    /** Plaintext Discord webhook message. */
-    SendDiscord(webhook_url: string, message: string): boolean;
-    /** Discord embed. `color` is 0xRRGGBB. */
-    SendDiscordEmbed(webhook_url: string, title: string, description: string, color?: number): boolean;
-    /** POST an arbitrary JSON payload - Slack, custom endpoints, telemetry. */
-    Send(url: string, json_payload: string): boolean;
-}
-
-export interface Atlas {
-    /** Your app's API key. Get it from atlassecurity.site/dashboard. Set BEFORE calling Startup(). */
-    API_KEY: string;
-
-    /** Initialise the library. Call once at the top of main(). Throws on failure. */
-    Startup(): void;
-    /** Terminate the session and clear all authentication state. */
-    Logout(): void;
-    /** Kill the process the hardest way Windows allows. Unbypassable, uncatchable, no cleanup. */
-    Exit(): never;
-
-    License: AtlasLicense;
-    Account: AtlasAccount;
-    Network: AtlasNetwork;
-    Data: AtlasData;
-    Variables: AtlasVariables;
-    Webhook: AtlasWebhook;
-}
-
-declare const atlas: Atlas;
+declare const atlas: atlas.Atlas;
 export = atlas;
