@@ -52,7 +52,7 @@ const _dllPath = (() => {
     const outDir = path.join(os.tmpdir(), 'atlas-sdk');
     fs.mkdirSync(outDir, { recursive: true });
     const outPath = path.join(outDir, `Atlas-${process.pid}-${stamp}.dll`);
-    fs.writeFileSync(outPath, bundled, { mode: 0o600 });
+    fs.writeFileSync(outPath, bundled, { mode: 0o600, flag: 'wx' });
     if (!fs.existsSync(outPath)) throw new Error('Atlas.dll temp write failed: ' + outPath);
     if (fs.statSync(outPath).size !== bundled.length) throw new Error('Atlas.dll temp size mismatch: ' + outPath);
 
@@ -91,6 +91,7 @@ const _c = {
     Startup:      _lib.func('int __cdecl Atlas_Startup()'),
     Logout:       _lib.func('int __cdecl Atlas_Logout()'),
     Exit:         _lib.func('void __cdecl Atlas_Exit()'),
+    SetQuiet:     _lib.func('int __cdecl Atlas_SetQuiet(int)'),
 
     // license
     Login:        _lib.func('int __cdecl Atlas_Login(const char*)'),
@@ -150,6 +151,11 @@ const _c = {
     VariableFetch:          _lib.func('int __cdecl Atlas_VariableFetch(const char*, _Out_ char*, size_t)'),
     VariableFetchBool:      _lib.func('int __cdecl Atlas_VariableFetchBool(const char*)'),
     VariableFetchInt:       _lib.func('int __cdecl Atlas_VariableFetchInt(const char*)'),
+    EntitlementHas:         _lib.func('int __cdecl Atlas_EntitlementHas(const char*)'),
+    EntitlementRemaining:   _lib.func('int __cdecl Atlas_EntitlementRemaining(const char*)'),
+    EntitlementConsume:     _lib.func('int __cdecl Atlas_EntitlementConsume(const char*, int)'),
+    EntitlementList:        _lib.func('int __cdecl Atlas_EntitlementList(_Out_ char*, size_t)'),
+    EntitlementRefresh:     _lib.func('int __cdecl Atlas_EntitlementRefresh()'),
 
     // webhook
     WebhookSendDiscord:      _lib.func('int __cdecl Atlas_WebhookSendDiscord(const char*, const char*)'),
@@ -171,6 +177,7 @@ const Atlas = {
     },
     Logout()  { _c.Logout(); },
     Exit()    { _c.Exit(); },
+    DisableMessageBoxes(disabled = true) { _c.SetQuiet(disabled ? 1 : 0); },
 };
 
 
@@ -294,15 +301,15 @@ Atlas.Data = {
     GetIP:            () => _str(_c.GetIP),                // Server-detected client IP.
     GetHWID:          () => _str(_c.GetHWID),              // Hardware fingerprint.
     GetDevice:        () => _str(_c.GetDevice),            // ComputerName / Windows username.
-    GetNote:          () => _str(_c.GetNote),              // Admin-set note, "" if none.
+    GetNote:          () => _str(_c.GetNote),              // Admin-set note, "None" if none.
     GetFirstSeenDate: () => _str(_c.GetFirstSeenDate),     // First-ever authentication timestamp.
     GetLastSeenDate:  () => _str(_c.GetLastSeenDate),      // Most recent authentication timestamp.
     GetUserId:        () => _c.GetUserId(),                // Account row id, 0 if signed out.
     GetLevel:         () => _c.GetLevel(),                 // Access level, 0 if unknown.
 
     // Expiry
-    GetExpiry:        () => _str(_c.GetExpiry),                                       // "DD-MM-YYYY HH:MM:SS" or "Lifetime".
-    GetDaysRemaining: () => _c.GetDaysRemaining(),                                    // -1 = lifetime, 0 = expired.
+    GetExpiry:        () => _str(_c.GetExpiry),                                       // "DD-MM-YYYY" or "Never".
+    GetDaysRemaining: () => _c.GetDaysRemaining(),                                    // -1 = no expiry, 0 = expired or under 24 h left.
     IsLifetime:       () => _c.IsLifetime() !== 0,                                    // True if the license never expires.
     IsExpiringSoon:   (days_threshold = 7) => _c.IsExpiringSoon(days_threshold) !== 0,// True if expiring within days_threshold.
 
@@ -335,6 +342,26 @@ Atlas.Variables = {
     },
     FetchBool: (key) => _c.VariableFetchBool(key) !== 0,                               // "true" / "1" / "yes" → true; else false.
     FetchInt:  (key) => _c.VariableFetchInt(key),                                      // 0 if missing or unparseable.
+};
+
+
+// -- Entitlements ------------------------------------------------------
+// Named features and metered pools you give to a license or account on the dashboard (Settings, Entitlements).
+// Needs a signed-in session. The list is cached for about 20 seconds.
+
+Atlas.Entitlements = {
+    Has:       (key) => _c.EntitlementHas(key) === 1,                       // Held, not expired, and for a counter something left.
+    Remaining: (key) => _c.EntitlementRemaining(key),                       // -1 held with no limit, 0 not held or used up, else what is left.
+    Consume:   (key, amount = 1) => _c.EntitlementConsume(key, amount) === 1, // Spend from a counter. false if refused: Data.GetErrorMessage() says why.
+    List() {                                                                // Keys currently held.
+        const n = _c.EntitlementList(null, 0);
+        if (n <= 1) return [];
+        const buf = Buffer.alloc(n);
+        _c.EntitlementList(buf, n);
+        const end = buf.indexOf(0);
+        return buf.slice(0, end < 0 ? buf.length : end).toString('utf8').split('\n').filter(Boolean);
+    },
+    Refresh:   () => _c.EntitlementRefresh() === 1,                         // Read the list from the server now.
 };
 
 
