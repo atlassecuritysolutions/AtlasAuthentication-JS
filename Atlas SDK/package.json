@@ -37,7 +37,6 @@
     "files":  [
                   "src/",
                   "Atlas.dll",
-                  "Atlas.dll.sig",
                   "postinstall.js"
               ]
 }
