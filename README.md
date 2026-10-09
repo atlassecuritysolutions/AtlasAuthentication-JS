@@ -59,7 +59,6 @@ Use the npm path for normal projects; vendor when the SDK has to ride inside a p
 ```
 Atlas SDK/
   Atlas.dll                     the DLL that runs the protection stack
-  Atlas.dll.sig                 Ed25519 release signature
   package.json                  declares koffi; runs postinstall.js
   src/index.js                  the binding - mirrors the C++ namespace 1:1
   src/index.d.ts                TypeScript typings
