@@ -28,7 +28,7 @@ function currentVersion() {
 function writeDevMarker() {
     try {
         const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-        const dir = path.join(local, 'AtlasAuth');
+        const dir = path.join(local, 'AtlasAuth', 'data');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const marker = {
             sdk: 'npm',
