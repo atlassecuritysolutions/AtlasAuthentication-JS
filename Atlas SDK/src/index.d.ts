@@ -20,6 +20,15 @@ declare namespace atlas {
         | 'ServerUnreachable'
         | 'Error';
 
+    // One device trusted for the signed-in account (Account.ListDevices).
+    interface AccountDevice {
+        id: number;
+        trusted_at: number;
+        last_seen_at: number;
+        last_seen_ip: string;
+        is_this_device: boolean;
+    }
+
     interface AccountLoginResult {
         /** Sign-in outcome. Branch on this before reading any other field. */
         status: AccountStatus;
@@ -45,6 +54,7 @@ declare namespace atlas {
     // LoginUser and Register are only for a license that carries its own username and password. For real user accounts use Account.
     // https://atlassecurity.site/docs?p=sdk/license
     interface AtlasLicense {
+        ResetWhileSignedIn(): boolean;
         Login(license_key: string): boolean;
         LoginUser(username: string, password: string): boolean;
         Register(license_key: string, username: string, password: string): boolean;
@@ -64,6 +74,16 @@ declare namespace atlas {
         HasPendingEmailConfirm(): boolean;
         Redeem(license_key: string): boolean;
         RequestPasswordReset(identifier: string): boolean;
+        RequestEmailChange(password: string, new_email: string): boolean;
+        ConfirmEmailChange(code: string): boolean;
+        RequestAccountDeletion(password: string): boolean;
+        ConfirmAccountDeletion(code: string): boolean;
+        ListDevices(): AccountDevice[];
+        RevokeDevice(device_id: number): boolean;
+        SignOutOtherDevices(): number;
+        ResetWhileSignedIn(): boolean;
+        RequestResetCode(identifier: string): boolean;
+        ConfirmReset(identifier: string, code: string): boolean;
         CompletePasswordReset(code: string, new_password: string): boolean;
     }
 
@@ -160,7 +180,7 @@ declare namespace atlas {
 
         // Stops the library opening any message box of its own (server notices, the wrong-API-key box, the update
         // notice). Call it before Startup(). The reason for a refusal stays in Data.GetErrorMessage().
-        DisableMessageBoxes(disabled?: boolean): void;
+        DisableMessageBoxes(): void;
 
         License: AtlasLicense;
         Account: AtlasAccount;

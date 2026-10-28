@@ -4,7 +4,7 @@
 
 [atlassecurity.site](https://atlassecurity.site) · [Dashboard](https://atlassecurity.site/dashboard) · [Docs](https://atlassecurity.site/docs) · [Discord](https://discord.gg/EG5dmpFaCF) · [mail@atlassecurity.site](mailto:mail@atlassecurity.site)
 
-<p align="center"><a href="https://atlassecurity.site"><img src="https://atlassecurity.site/og-image.png" alt="Atlas. Sell software that can't be shared or read." width="100%"></a></p>
+<p align="center"><a href="https://atlassecurity.site"><img src="https://atlassecurity.site/og-image.png" alt="Atlas. Licensing and binary protection for Windows software." width="100%"></a></p>
 
 ## Sell software that can't be shared or read.
 
@@ -28,11 +28,11 @@ This is the Node and Electron SDK: a thin binding over a prebuilt `Atlas.dll`, l
 Requirements: Windows 10 or 11 x64 and 64-bit Node.js 18 or newer. The only runtime dependency is `koffi`, which ships prebuilt for x64 Windows.
 
 1. **Create an app.** Sign up at [atlassecurity.site](https://atlassecurity.site), create an application in the dashboard and copy its API key.
-2. **Install.** `npm install @atlassecurity/auth`
+2. **Install.** `npm install atlas-auth`
 3. **Sign in.**
 
 ```js
-const atlas = require('@atlassecurity/auth');
+const atlas = require('atlas-auth');
 
 atlas.Startup();                   // once, first
 
@@ -70,7 +70,7 @@ Every call, status code and edge case is documented, with examples in all three 
 - **Updates for your users.** Upload under **Versions**, promote, and older clients replace themselves on their next launch. It swaps one file, so it suits single-file builds such as a `pkg` `.exe`. [More](https://atlassecurity.site/docs?p=guides/auto-update).
 - **Updates for the SDK.** `npm update` brings the package forward. From 1.1.2, on a development machine `Atlas.dll` and the binding files also keep themselves current from signed releases, with a rollback if the new DLL will not load. End-user machines never update this way.
 
-When a process ends unexpectedly, the cause is already on disk: `%LOCALAPPDATA%\AtlasAuth\logs\atlas_exit_*.log` holds the reason, file and line. [Reading the log](https://atlassecurity.site/docs?p=diagnostics/logs).
+When a process ends unexpectedly, the cause is already on disk: `%USERPROFILE%\.atlassecurity\logs\atlas_exit_*.log` holds the reason, file and line. [Reading the log](https://atlassecurity.site/docs?p=diagnostics/logs).
 
 ## Atlas Obfuscator
 
@@ -86,8 +86,8 @@ The other half of Atlas protects the compiled file itself. Upload an `.exe` or `
 
 The binding source (`src/index.js`, `src/index.d.ts`) and the example code in this repository are released under the MIT License - see `LICENSE`. Everything below applies to `Atlas.dll`, to Atlas services, and to Atlas internals.
 
-© 2025–2026 Atlas Security Solutions. All rights reserved.
-Sold by Atlas Security Solutions - Jeddah, Kingdom of Saudi Arabia.
+© 2025–2026 Atlas Security. All rights reserved.
+Sold by Atlas Security - Jeddah, Kingdom of Saudi Arabia.
 
 This SDK is licensed, not sold, for one purpose: integrating Atlas Authentication into your own software. That is the entire grant. Nothing here implies any broader right.
 

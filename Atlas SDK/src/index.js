@@ -4,7 +4,7 @@
 //   Docs:      https://atlassecurity.site/docs
 //   Legal:     https://atlassecurity.site/legal
 //
-//   const atlas = require('@atlassecurity/auth');
+//   const atlas = require('atlas-auth');
 //   atlas.API_KEY = 'YOUR_API_KEY';
 //   atlas.Startup();
 //   if (atlas.License.Login('license-key')) { /* signed in */ }
@@ -91,7 +91,7 @@ const _c = {
     Startup:      _lib.func('int __cdecl Atlas_Startup()'),
     Logout:       _lib.func('int __cdecl Atlas_Logout()'),
     Exit:         _lib.func('void __cdecl Atlas_Exit()'),
-    SetQuiet:     _lib.func('int __cdecl Atlas_SetQuiet(int)'),
+    DisableMessageBoxes: _lib.func('void __cdecl Atlas_DisableMessageBoxes()'),
 
     // license
     Login:        _lib.func('int __cdecl Atlas_Login(const char*)'),
@@ -109,6 +109,16 @@ const _c = {
     RequestPasswordReset:    _lib.func('int __cdecl Atlas_RequestPasswordReset(const char*)'),
     CompletePasswordReset:   _lib.func('int __cdecl Atlas_CompletePasswordReset(const char*, const char*)'),
     ChangePassword:          _lib.func('int __cdecl Atlas_ChangePassword(const char*, const char*)'),
+    RequestEmailChange:      _lib.func('int __cdecl Atlas_RequestEmailChange(const char*, const char*)'),
+    ConfirmEmailChange:      _lib.func('int __cdecl Atlas_ConfirmEmailChange(const char*)'),
+    RequestAccountDeletion:  _lib.func('int __cdecl Atlas_RequestAccountDeletion(const char*)'),
+    ConfirmAccountDeletion:  _lib.func('int __cdecl Atlas_ConfirmAccountDeletion(const char*)'),
+    ListDevices:             _lib.func('int __cdecl Atlas_ListDevices(_Out_ char*, size_t)'),
+    RevokeDevice:            _lib.func('int __cdecl Atlas_RevokeDevice(int64_t)'),
+    SignOutOtherDevices:     _lib.func('int __cdecl Atlas_SignOutOtherDevices()'),
+    ResetWhileSignedIn:      _lib.func('int __cdecl Atlas_ResetWhileSignedIn()'),
+    RequestResetCode:        _lib.func('int __cdecl Atlas_RequestResetCode(const char*)'),
+    ConfirmReset:            _lib.func('int __cdecl Atlas_ConfirmReset(const char*, const char*)'),
 
     // last-verify context (set by LoginAccountEx on NEEDS_VERIFY)
     GetLastVerifyMaskedEmail: _lib.func('int __cdecl Atlas_GetLastVerifyMaskedEmail(_Out_ char*, size_t)'),
@@ -177,7 +187,7 @@ const Atlas = {
     },
     Logout()  { _c.Logout(); },
     Exit()    { _c.Exit(); },
-    DisableMessageBoxes(disabled = true) { _c.SetQuiet(disabled ? 1 : 0); },
+    DisableMessageBoxes() { _c.DisableMessageBoxes(); },
 };
 
 
@@ -198,6 +208,7 @@ Atlas.License = {
         // Does NOT sign in on success - call LoginUser(u, p) after.
         return _c.Register(license_key, username, password) === _OK;
     },
+    ResetWhileSignedIn: () => _c.ResetWhileSignedIn() === _OK,
 };
 
 
@@ -267,6 +278,18 @@ Atlas.Account = {
     Redeem:                (license_key) => _c.RedeemKey(0, license_key) === _OK,
     RequestPasswordReset:  (identifier)  => _c.RequestPasswordReset(identifier) === _OK,
     CompletePasswordReset: (code, new_password) => _c.CompletePasswordReset(code, new_password) === _OK,
+    RequestEmailChange:      (password, new_email) => _c.RequestEmailChange(password, new_email) === _OK,
+    ConfirmEmailChange:      (code)                => _c.ConfirmEmailChange(code) === _OK,
+    RequestAccountDeletion:  (password)            => _c.RequestAccountDeletion(password) === _OK,
+    ConfirmAccountDeletion:  (code)                => _c.ConfirmAccountDeletion(code) === _OK,
+    // Each device: { id, trusted_at, last_seen_at, last_seen_ip, is_this_device } (Unix seconds).
+    ListDevices:             () => JSON.parse(_str(_c.ListDevices)),
+    RevokeDevice:            (device_id) => _c.RevokeDevice(device_id) === _OK,
+    // Returns how many other sessions were ended, or -1 on failure.
+    SignOutOtherDevices:     () => _c.SignOutOtherDevices(),
+    ResetWhileSignedIn:      () => _c.ResetWhileSignedIn() === _OK,
+    RequestResetCode:        (identifier)       => _c.RequestResetCode(identifier) === _OK,
+    ConfirmReset:            (identifier, code) => _c.ConfirmReset(identifier, code) === _OK,
 };
 
 
