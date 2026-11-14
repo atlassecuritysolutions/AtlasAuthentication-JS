@@ -1,9 +1,9 @@
 // Atlas SDK - Console example (Node.js).
 // Run under 64-bit Node >= 18. Set atlas.API_KEY = 'YOUR_API_KEY' below.
 //
-//   Dashboard: https://atlassecurity.site/dashboard
-//   Docs:      https://atlassecurity.site/docs
-//   Legal:     https://atlassecurity.site/legal
+//   Dashboard: https://atlas.se.net/dashboard
+//   Docs:      https://atlas.se.net/docs
+//   Legal:     https://atlas.se.net/legal
 
 const readline = require('readline');
 const atlas    = require('../Atlas SDK/src');

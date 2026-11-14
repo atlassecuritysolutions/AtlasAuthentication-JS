@@ -1,8 +1,8 @@
 // Atlas SDK - Electron example (main process).
 //
-//   Dashboard: https://atlassecurity.site/dashboard
-//   Docs:      https://atlassecurity.site/docs
-//   Legal:     https://atlassecurity.site/legal
+//   Dashboard: https://atlas.se.net/dashboard
+//   Docs:      https://atlas.se.net/docs
+//   Legal:     https://atlas.se.net/legal
 //
 // Security model:
 //   Atlas lives in the main process and never touches the renderer directly.
@@ -171,7 +171,7 @@ ipcMain.handle('atlas:status', async () => ({
     banned:        atlas.Data.IsBanned(),
 }));
 
-const ALLOWED_HOSTS = new Set(['atlassecurity.site', 'www.atlassecurity.site']);
+const ALLOWED_HOSTS = new Set(['atlas.se.net', 'www.atlas.se.net']);
 ipcMain.handle('atlas:open-url', async (_event, url) => {
     try {
         const u = new URL(String(url || ''));

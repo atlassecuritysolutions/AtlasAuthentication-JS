@@ -1,8 +1,8 @@
 // TypeScript definitions for the Atlas JS binding. One-to-one with src/index.js.
 //
-//   Dashboard: https://atlassecurity.site/dashboard
-//   Docs:      https://atlassecurity.site/docs?p=sdk/overview
-//   Legal:     https://atlassecurity.site/legal
+//   Dashboard: https://atlas.se.net/dashboard
+//   Docs:      https://atlas.se.net/docs?p=sdk/overview
+//   Legal:     https://atlas.se.net/legal
 //
 // Uses Node's Buffer: install @types/node.
 
@@ -52,7 +52,7 @@ declare namespace atlas {
 
     // License: sign in with a license key. The first sign-in locks the key to this PC.
     // LoginUser and Register are only for a license that carries its own username and password. For real user accounts use Account.
-    // https://atlassecurity.site/docs?p=sdk/license
+    // https://atlas.se.net/docs?p=sdk/license
     interface AtlasLicense {
         ResetWhileSignedIn(): boolean;
         Login(license_key: string): boolean;
@@ -63,7 +63,7 @@ declare namespace atlas {
     // Account: username and password accounts, with optional email verification and password reset.
     // Login returns a result: read result.status first. 'NeedsVerification' means an 8-digit code was emailed, so call SubmitVerification(code).
     // Register does not sign in.
-    // https://atlassecurity.site/docs?p=sdk/account
+    // https://atlas.se.net/docs?p=sdk/account
     interface AtlasAccount {
         Status: Readonly<Record<AccountStatus, AccountStatus>>;
         Login(username: string, password: string): AccountLoginResult;
@@ -89,7 +89,7 @@ declare namespace atlas {
 
     // Network: ask the server something during a session. The library already checks the session in the background,
     // so CheckAuthentication() is only for right before a sensitive action.
-    // https://atlassecurity.site/docs?p=sdk/network
+    // https://atlas.se.net/docs?p=sdk/network
     interface AtlasNetwork {
         CheckAuthentication(): boolean;
         Download(file_id: number): Buffer;
@@ -102,7 +102,7 @@ declare namespace atlas {
     // Data: facts about the signed-in session. Valid only after a successful sign-in.
     // A getter with nothing to return gives "" or 0. GetDaysRemaining() is the exception: -1 means no expiry,
     // 0 means expired or under 24 hours left. GetExpiry() is "DD-MM-YYYY" or "Never".
-    // https://atlassecurity.site/docs?p=sdk/data
+    // https://atlas.se.net/docs?p=sdk/data
     interface AtlasData {
         // Identity
         GetLicense(): string;
@@ -140,7 +140,7 @@ declare namespace atlas {
 
     // Variables: values you set on the dashboard, read while the app runs. Change one without shipping a new build.
     // A key that does not exist gives "" (Fetch), 0 (FetchInt) or false (FetchBool).
-    // https://atlassecurity.site/docs?p=sdk/variables
+    // https://atlas.se.net/docs?p=sdk/variables
     interface AtlasVariables {
         Fetch(key: string): string;
         FetchBool(key: string): boolean;
@@ -149,7 +149,7 @@ declare namespace atlas {
 
     // Entitlements: what this license or account may do, from the features and credits you create on the dashboard.
     // Has and Remaining are for showing and hiding. Only Consume is enforced by the server.
-    // https://atlassecurity.site/docs?p=sdk/entitlements
+    // https://atlas.se.net/docs?p=sdk/entitlements
     interface AtlasEntitlements {
         Has(key: string): boolean;
         Remaining(key: string): number;
@@ -159,7 +159,7 @@ declare namespace atlas {
     }
 
     // Webhook: send an HTTP POST from the client (Discord, Slack or your own endpoint). Unrelated to Atlas sign-in.
-    // https://atlassecurity.site/docs?p=sdk/webhook
+    // https://atlas.se.net/docs?p=sdk/webhook
     interface AtlasWebhook {
         SendDiscord(webhook_url: string, message: string): boolean;
         SendDiscordEmbed(webhook_url: string, title: string, description: string, color?: number): boolean;
@@ -173,7 +173,7 @@ declare namespace atlas {
 
         // Session lifecycle: Startup() once, first (throws on failure). Logout() ends the session; the library stays loaded.
         // Exit() kills the process, no cleanup.
-        // https://atlassecurity.site/docs?p=sdk/lifecycle
+        // https://atlas.se.net/docs?p=sdk/lifecycle
         Startup(): void;
         Logout(): void;
         Exit(): never;

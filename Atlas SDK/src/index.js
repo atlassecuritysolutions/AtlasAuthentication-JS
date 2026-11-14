@@ -1,8 +1,8 @@
 // Atlas SDK - Node / Electron binding.
 //
-//   Dashboard: https://atlassecurity.site/dashboard
-//   Docs:      https://atlassecurity.site/docs
-//   Legal:     https://atlassecurity.site/legal
+//   Dashboard: https://atlas.se.net/dashboard
+//   Docs:      https://atlas.se.net/docs
+//   Legal:     https://atlas.se.net/legal
 //
 //   const atlas = require('atlas-auth');
 //   atlas.API_KEY = 'YOUR_API_KEY';
@@ -175,7 +175,7 @@ const _c = {
 
 
 const Atlas = {
-    // Your app's API key. Get it from atlassecurity.site/dashboard.
+    // Your app's API key. Get it from atlas.se.net/dashboard.
     API_KEY: 'YOUR_API_KEY',
 
     // -- Session lifecycle --

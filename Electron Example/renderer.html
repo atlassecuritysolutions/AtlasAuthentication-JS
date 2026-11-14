@@ -23,7 +23,7 @@
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
 
     <style>
-        /* Atlas cold-steel palette (source: atlassecurity.site) */
+        /* Atlas cold-steel palette (source: atlas.se.net) */
         :root {
             --ink:         #080f1e;
             --panel:       #0e1a30;
@@ -546,7 +546,7 @@
     </div>
 </div>
 
-<div class="foot"><a id="site-link">atlassecurity.site</a></div>
+<div class="foot"><a id="site-link">atlas.se.net</a></div>
 
 <script>
     const $ = (id) => document.getElementById(id);
@@ -878,7 +878,7 @@
     });
 
     $('site-link').addEventListener('click', async () => {
-        try { await window.atlas.openUrl('https://atlassecurity.site'); }
+        try { await window.atlas.openUrl('https://atlas.se.net'); }
         catch (e) { console.error('[atlas-example] openUrl failed:', e); }
     });
 
